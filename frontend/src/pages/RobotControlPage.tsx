@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   servoService,
   ServoStatus,
@@ -29,11 +29,33 @@ export default function RobotControlPage() {
   const [hardwareMsg, setHardwareMsg] = useState<string | null>(null);
   const [wiringGuideOpen, setWiringGuideOpen] = useState(false);
 
-  // Local target angles (for responsive UI updates)
+  // Omnidirectional Virtual Joystick / Trackpad State
+  const [joystickSpring, setJoystickSpring] = useState<boolean>(false);
+  const [isDraggingJoystick, setIsDraggingJoystick] = useState<boolean>(false);
+  const [joystickPos, setJoystickPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isFaceDragging, setIsFaceDragging] = useState<boolean>(false);
+  const [activePresetSequence, setActivePresetSequence] = useState<string | null>(null);
+
+  // Internal target angles (kept as ref & state for instant feedback & zero desync)
   const [targetPan, setTargetPan] = useState<number>(90);
   const [targetTilt, setTargetTilt] = useState<number>(90);
+  const panRef = useRef<number>(90);
+  const tiltRef = useRef<number>(90);
+  const lastSentTimeRef = useRef<number>(0);
+
+  const joystickRef = useRef<HTMLDivElement | null>(null);
+  const faceStageRef = useRef<HTMLDivElement | null>(null);
 
   const { telemetry, wsConnected, sendCommand, setTelemetry } = useServoWebSocket();
+
+  // Keep refs aligned
+  useEffect(() => {
+    panRef.current = targetPan;
+  }, [targetPan]);
+
+  useEffect(() => {
+    tiltRef.current = targetTilt;
+  }, [targetTilt]);
 
   // Load available serial ports
   const scanSerialPorts = useCallback(async () => {
@@ -71,6 +93,8 @@ export default function RobotControlPage() {
       }));
       setTargetPan(statusData.pan_angle);
       setTargetTilt(statusData.tilt_angle);
+      panRef.current = statusData.pan_angle;
+      tiltRef.current = statusData.tilt_angle;
       setCalibration(calData);
       setError(null);
     } catch (err: any) {
@@ -85,11 +109,20 @@ export default function RobotControlPage() {
     scanSerialPorts();
   }, [refreshStatus, scanSerialPorts]);
 
-  // Sync targets with telemetry when updated
+  // Sync targets with telemetry when not actively dragging
   useEffect(() => {
-    setTargetPan(telemetry.pan);
-    setTargetTilt(telemetry.tilt);
-  }, [telemetry.pan, telemetry.tilt]);
+    if (!isDraggingJoystick && !isFaceDragging && !activePresetSequence) {
+      setTargetPan(telemetry.pan);
+      setTargetTilt(telemetry.tilt);
+      panRef.current = telemetry.pan;
+      tiltRef.current = telemetry.tilt;
+
+      // Update 2D joystick puck position from telemetry
+      const normX = ((90 - telemetry.pan) / 90);
+      const normY = ((telemetry.tilt - 90) / 60);
+      setJoystickPos({ x: normX, y: normY });
+    }
+  }, [telemetry.pan, telemetry.tilt, isDraggingJoystick, isFaceDragging, activePresetSequence]);
 
   // Connect to ESP32 Hardware via Serial
   const handleConnectESP32 = async () => {
@@ -165,102 +198,86 @@ export default function RobotControlPage() {
     }
   };
 
-  // --- INDEPENDENT SINGLE-AXIS & MULTI-AXIS COMMANDS ---
-
-  // Move Pan ONLY (leaves Tilt completely untouched on hardware)
-  const handlePanChange = async (newPan: number) => {
-    const clamped = Math.max(0, Math.min(180, newPan));
-    setTargetPan(clamped);
-    if (!sendCommand({ type: "pan", pan: clamped, speed })) {
-      try {
-        await servoService.movePan(clamped, speed);
-      } catch (e: any) {
-        setError(e?.response?.data?.detail || e.message);
+  // --- UNIVERSAL TRANSMITTER ---
+  const sendTargetCoordinates = useCallback(
+    async (pan: number, tilt: number, spd: number = speed, force = false) => {
+      const now = performance.now();
+      if (!force && now - lastSentTimeRef.current < 25) {
+        return; // throttle rapid drag events to 40Hz
       }
-    }
-  };
+      lastSentTimeRef.current = now;
 
-  // Move Tilt ONLY (leaves Pan completely untouched on hardware)
-  const handleTiltChange = async (newTilt: number) => {
-    const clamped = Math.max(30, Math.min(150, newTilt));
-    setTargetTilt(clamped);
-    if (!sendCommand({ type: "tilt", tilt: clamped, speed })) {
-      try {
-        await servoService.moveTilt(clamped, speed);
-      } catch (e: any) {
-        setError(e?.response?.data?.detail || e.message);
+      const clampedPan = Math.max(0, Math.min(180, pan));
+      const clampedTilt = Math.max(30, Math.min(150, tilt));
+
+      setTargetPan(clampedPan);
+      setTargetTilt(clampedTilt);
+      panRef.current = clampedPan;
+      tiltRef.current = clampedTilt;
+
+      const payload = { type: "move", pan: clampedPan, tilt: clampedTilt, speed: spd };
+      if (!sendCommand(payload)) {
+        try {
+          await servoService.move(clampedPan, clampedTilt, spd);
+        } catch (e: any) {
+          setError(e?.response?.data?.detail || e.message);
+        }
       }
-    }
+    },
+    [sendCommand, speed]
+  );
+
+  // --- INDEPENDENT STEPPING ACTIONS ---
+
+  // Move Tilt Up (+10°) while locking Pan at current angle
+  const handleStepTiltUp = () => {
+    const nextTilt = Math.min(150, tiltRef.current + 10);
+    sendTargetCoordinates(panRef.current, nextTilt, speed, true);
   };
 
-  // Step Pan (Left/Right)
-  const stepPan = (delta: number) => {
-    const nextPan = Math.max(0, Math.min(180, targetPan + delta));
-    if (nextPan !== targetPan) {
-      handlePanChange(nextPan);
-    }
+  // Move Tilt Down (-10°) while locking Pan at current angle
+  const handleStepTiltDown = () => {
+    const nextTilt = Math.max(30, tiltRef.current - 10);
+    sendTargetCoordinates(panRef.current, nextTilt, speed, true);
   };
 
-  // Step Tilt (Up/Down)
-  const stepTilt = (delta: number) => {
-    const nextTilt = Math.max(30, Math.min(150, targetTilt + delta));
-    if (nextTilt !== targetTilt) {
-      handleTiltChange(nextTilt);
-    }
+  // Move Pan Left (+10°) while locking Tilt at current angle
+  const handleStepPanLeft = () => {
+    const nextPan = Math.min(180, panRef.current + 10);
+    sendTargetCoordinates(nextPan, tiltRef.current, speed, true);
   };
 
-  // Move Both Pan and Tilt simultaneously (for diagonals & presets)
-  const moveBoth = async (pan: number, tilt: number) => {
-    const clampedPan = Math.max(0, Math.min(180, pan));
-    const clampedTilt = Math.max(30, Math.min(150, tilt));
-    setTargetPan(clampedPan);
-    setTargetTilt(clampedTilt);
-    if (!sendCommand({ type: "move", pan: clampedPan, tilt: clampedTilt, speed })) {
-      try {
-        await servoService.move(clampedPan, clampedTilt, speed);
-      } catch (e: any) {
-        setError(e?.response?.data?.detail || e.message);
-      }
-    }
+  // Move Pan Right (-10°) while locking Tilt at current angle
+  const handleStepPanRight = () => {
+    const nextPan = Math.max(0, panRef.current - 10);
+    sendTargetCoordinates(nextPan, tiltRef.current, speed, true);
   };
 
-  // Step Diagonal (Both motors move at the same time)
-  const stepDiagonal = (panDelta: number, tiltDelta: number) => {
-    const nextPan = Math.max(0, Math.min(180, targetPan + panDelta));
-    const nextTilt = Math.max(30, Math.min(150, targetTilt + tiltDelta));
-    moveBoth(nextPan, nextTilt);
+  // Step Diagonal (Both motors simultaneously)
+  const handleStepDiagonal = (panDelta: number, tiltDelta: number) => {
+    const nextPan = Math.max(0, Math.min(180, panRef.current + panDelta));
+    const nextTilt = Math.max(30, Math.min(150, tiltRef.current + tiltDelta));
+    sendTargetCoordinates(nextPan, nextTilt, speed, true);
   };
 
-  // --- CENTERING COMMANDS ---
+  // --- INDEPENDENT CENTERING ---
 
-  // Center Pan Only (90°, leaves Tilt untouched)
+  // Center Pan Only (90°), leaves Tilt untouched
   const handleCenterPan = async () => {
-    setTargetPan(90);
-    if (!sendCommand({ type: "center_pan" })) {
-      try {
-        await servoService.centerPan();
-      } catch (e: any) {
-        setError(e?.response?.data?.detail || e.message);
-      }
-    }
+    sendTargetCoordinates(90, tiltRef.current, speed, true);
   };
 
-  // Center Tilt Only (90° - Normal Level Gaze, leaves Pan untouched)
+  // Center Tilt Only (90°), leaves Pan untouched
   const handleCenterTilt = async () => {
-    setTargetTilt(90);
-    if (!sendCommand({ type: "center_tilt" })) {
-      try {
-        await servoService.centerTilt();
-      } catch (e: any) {
-        setError(e?.response?.data?.detail || e.message);
-      }
-    }
+    sendTargetCoordinates(panRef.current, 90, speed, true);
   };
 
-  // Center Both Motors (90°, 90°)
+  // Center Both (90°, 90°)
   const handleCenterBoth = async () => {
     setTargetPan(90);
     setTargetTilt(90);
+    panRef.current = 90;
+    tiltRef.current = 90;
     if (!sendCommand({ type: "center" })) {
       try {
         await servoService.center();
@@ -270,8 +287,194 @@ export default function RobotControlPage() {
     }
   };
 
-  // --- AXIS INVERSION CONTROLS ---
+  // --- OMNIDIRECTIONAL 360° VIRTUAL JOYSTICK & TOUCHPAD ---
 
+  const handleJoystickMove = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!joystickRef.current) return;
+      const rect = joystickRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const radius = rect.width / 2;
+
+      let dx = (clientX - centerX) / radius;
+      let dy = (centerY - clientY) / radius; // Invert Y so up is positive
+
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 1) {
+        dx /= dist;
+        dy /= dist;
+      }
+
+      setJoystickPos({ x: dx, y: dy });
+
+      // Convert joystick (-1 to +1) to Servo Angles
+      // X: +1 (right) -> 30° (Right), -1 (left) -> 150° (Left), 0 -> 90°
+      const targetPanAngle = 90 - dx * 60;
+      // Y: +1 (up) -> 140° (Up), -1 (down) -> 40° (Down), 0 -> 90°
+      const targetTiltAngle = 90 + dy * 50;
+
+      sendTargetCoordinates(targetPanAngle, targetTiltAngle, speed);
+    },
+    [sendTargetCoordinates, speed]
+  );
+
+  const handleJoystickMouseDown = (e: React.MouseEvent) => {
+    setIsDraggingJoystick(true);
+    handleJoystickMove(e.clientX, e.clientY);
+  };
+
+  const handleJoystickTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length > 0) {
+      setIsDraggingJoystick(true);
+      handleJoystickMove(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  };
+
+  // Window drag listeners for smooth omnidirectional joystick
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (isDraggingJoystick) {
+        handleJoystickMove(e.clientX, e.clientY);
+      }
+    };
+
+    const onMouseUp = () => {
+      if (isDraggingJoystick) {
+        setIsDraggingJoystick(false);
+        if (joystickSpring) {
+          handleCenterBoth();
+          setJoystickPos({ x: 0, y: 0 });
+        }
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (isDraggingJoystick && e.touches.length > 0) {
+        handleJoystickMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (isDraggingJoystick) {
+        setIsDraggingJoystick(false);
+        if (joystickSpring) {
+          handleCenterBoth();
+          setJoystickPos({ x: 0, y: 0 });
+        }
+      }
+    };
+
+    if (isDraggingJoystick) {
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+      window.addEventListener("touchmove", onTouchMove);
+      window.addEventListener("touchend", onTouchEnd);
+    }
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [isDraggingJoystick, joystickSpring, handleJoystickMove, handleCenterBoth]);
+
+  // --- INTERACTIVE 3D FACE DRAGGING (DRAG TO LOOK) ---
+
+  const handleFaceMove = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!faceStageRef.current) return;
+      const rect = faceStageRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      const normX = Math.max(-1, Math.min(1, (clientX - centerX) / (rect.width / 2)));
+      const normY = Math.max(-1, Math.min(1, (clientY - centerY) / (rect.height / 2)));
+
+      // Dragging right rotates head right, dragging down points chin down
+      const calculatedPan = 90 - normX * 60;
+      const calculatedTilt = 90 - normY * 45;
+
+      sendTargetCoordinates(calculatedPan, calculatedTilt, speed);
+    },
+    [sendTargetCoordinates, speed]
+  );
+
+  const handleFaceMouseDown = (e: React.MouseEvent) => {
+    setIsFaceDragging(true);
+    handleFaceMove(e.clientX, e.clientY);
+  };
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (isFaceDragging) {
+        handleFaceMove(e.clientX, e.clientY);
+      }
+    };
+    const onMouseUp = () => {
+      if (isFaceDragging) {
+        setIsFaceDragging(false);
+      }
+    };
+
+    if (isFaceDragging) {
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [isFaceDragging, handleFaceMove]);
+
+  // --- HUMAN EXPRESSION & PRESENTATION SEQUENCES ---
+
+  const executeSequence = async (name: string, steps: Array<{ pan: number; tilt: number; delay: number }>) => {
+    setActivePresetSequence(name);
+    for (const step of steps) {
+      await sendTargetCoordinates(step.pan, step.tilt, 85, true);
+      await new Promise((res) => setTimeout(res, step.delay));
+    }
+    setActivePresetSequence(null);
+  };
+
+  const handlePresenterScan = () => {
+    executeSequence("presenterScan", [
+      { pan: 140, tilt: 90, delay: 600 },
+      { pan: 140, tilt: 105, delay: 400 },
+      { pan: 90, tilt: 90, delay: 500 },
+      { pan: 40, tilt: 90, delay: 600 },
+      { pan: 40, tilt: 105, delay: 400 },
+      { pan: 90, tilt: 90, delay: 400 },
+    ]);
+  };
+
+  const handleThinkingGesture = () => {
+    executeSequence("thinking", [
+      { pan: 60, tilt: 125, delay: 800 },
+      { pan: 65, tilt: 130, delay: 600 },
+      { pan: 90, tilt: 90, delay: 500 },
+    ]);
+  };
+
+  const handleAffirmativeNod = () => {
+    executeSequence("nod", [
+      { pan: panRef.current, tilt: 65, delay: 250 },
+      { pan: panRef.current, tilt: 110, delay: 250 },
+      { pan: panRef.current, tilt: 75, delay: 200 },
+      { pan: panRef.current, tilt: 90, delay: 250 },
+    ]);
+  };
+
+  const handleCuriousGlance = () => {
+    executeSequence("curious", [
+      { pan: 135, tilt: 115, delay: 500 },
+      { pan: 125, tilt: 100, delay: 400 },
+      { pan: 90, tilt: 90, delay: 400 },
+    ]);
+  };
+
+  // Quick Inversion Toggles
   const handleTogglePanInvert = async () => {
     if (calibration.length < 2) return;
     const clone = [...calibration];
@@ -322,21 +525,6 @@ export default function RobotControlPage() {
     }
   };
 
-  // Test Sweep Sequence
-  const handleSweepTest = async () => {
-    const sweepPositions = [
-      { pan: 30, tilt: 90 },
-      { pan: 150, tilt: 90 },
-      { pan: 90, tilt: 130 },
-      { pan: 90, tilt: 50 },
-      { pan: 90, tilt: 90 },
-    ];
-    for (const pos of sweepPositions) {
-      await moveBoth(pos.pan, pos.tilt);
-      await new Promise((res) => setTimeout(res, 400));
-    }
-  };
-
   // Calibration save
   const handleSaveCalibration = async () => {
     try {
@@ -369,7 +557,7 @@ export default function RobotControlPage() {
         <div>
           <h1 className="robot-control__title">Robot Pan-Tilt Control</h1>
           <p className="robot-control__subtitle">
-            Independent motor steppers, simultaneous 8-axis joystick, 3D live orientation preview, and ESP32 hardware bridge
+            All-round 360° human gaze joystick, 3D interactive head drag, independent single-axis steppers, and ESP32 hardware bridge
           </p>
         </div>
         <div className="robot-control__header-actions">
@@ -408,7 +596,6 @@ export default function RobotControlPage() {
         </div>
 
         <div className="hardware-bar__controls">
-          {/* Tab Switcher: USB Serial vs Wireless Wi-Fi */}
           <div className="hardware-bar__tabs">
             <button
               className={`btn btn--small ${connTab === "serial" ? "btn--primary" : "btn--secondary"}`}
@@ -604,13 +791,10 @@ export default function RobotControlPage() {
               <p>ESP32 <code>VIN / 5V</code> (or External 5V 2A Power) ➔ Servo VCC (Red)</p>
             </div>
           </div>
-          <p className="wiring-note">
-            💡 <em>Note: MG90S test micro-servos can run directly off the ESP32 VIN pin when USB connected. When upgrading to MG995/MG996R, use an external 5V 2A+ power supply with common ground.</em>
-          </p>
         </div>
       )}
 
-      {/* Emergency Stop Active Banner */}
+      {/* Emergency Stop Banner */}
       {telemetry.is_emergency_stopped && (
         <div className="estop-banner" role="alert">
           <span className="estop-banner__icon">⚠️</span>
@@ -635,26 +819,31 @@ export default function RobotControlPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* TOP SECTION: 3D PREVIEW (LEFT) + COMPREHENSIVE D-PAD CONTROLLER (RIGHT)  */}
+      {/* TOP STAGE: 3D INTERACTIVE AVATAR (LEFT) + 360° HUMAN GAZE JOYSTICK (RIGHT)*/}
       {/* ========================================================================= */}
       <div className="robot-control__top-grid">
-        {/* Left Card: 3D Head Avatar Gauge & Orientation Readouts */}
+        {/* Left Card: 3D Head Avatar with Direct Drag-to-Look */}
         <div className="card gauge-card">
           <div className="card__header">
             <div>
               <h2 className="card__title">Live Head Orientation</h2>
-              <span className="card__subtitle">Real-time 3D yaw and pitch visualization</span>
+              <span className="card__subtitle">Click & drag face directly for interactive natural head movement</span>
             </div>
             <span className={`status-pill ${telemetry.is_moving ? "status-pill--active" : ""}`}>
               {telemetry.is_moving ? "MOVING" : "IDLE"}
             </span>
           </div>
 
-          <div className="gauge-stage">
+          <div
+            ref={faceStageRef}
+            className={`gauge-stage ${isFaceDragging ? "gauge-stage--dragging" : ""}`}
+            onMouseDown={handleFaceMouseDown}
+            title="Click and drag to aim the robot head naturally"
+          >
             <div
               className="head-avatar"
               style={{
-                transform: `perspective(600px) rotateY(${(90 - telemetry.pan) * 0.8}deg) rotateX(${(telemetry.tilt - 90) * 0.8}deg)`,
+                transform: `perspective(600px) rotateY(${(90 - targetPan) * 0.8}deg) rotateX(${(targetTilt - 90) * 0.8}deg)`,
               }}
             >
               <div className="head-avatar__face">
@@ -666,142 +855,188 @@ export default function RobotControlPage() {
                 <div className="head-avatar__crosshair" />
               </div>
             </div>
+            <div className="gauge-stage__hint">🖱️ Click & Drag Face to Look</div>
           </div>
 
-          {/* Real-time Angle Readout Badges */}
+          {/* Real-time Angle Readouts */}
           <div className="angle-readouts">
             <div className="angle-box">
               <span className="angle-box__label">MOTOR 1 : PAN (HORIZONTAL)</span>
-              <span className="angle-box__value">{telemetry.pan.toFixed(1)}°</span>
+              <span className="angle-box__value">{targetPan.toFixed(1)}°</span>
               <span className="angle-box__sub">
-                {telemetry.pan < 88 ? "Turning Right" : telemetry.pan > 92 ? "Turning Left" : "Centered (Forward)"}
+                {targetPan < 88 ? "Turning Right" : targetPan > 92 ? "Turning Left" : "Centered (Forward)"}
               </span>
             </div>
             <div className="angle-box">
               <span className="angle-box__label">MOTOR 2 : TILT (VERTICAL)</span>
-              <span className="angle-box__value">{telemetry.tilt.toFixed(1)}°</span>
+              <span className="angle-box__value">{targetTilt.toFixed(1)}°</span>
               <span className="angle-box__sub">
-                {telemetry.tilt < 88 ? "Chin Down" : telemetry.tilt > 92 ? "Head Up" : "Normal Level Gaze"}
+                {targetTilt < 88 ? "Chin Down" : targetTilt > 92 ? "Head Up" : "Normal Level Gaze"}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Right Card: Independent & Simultaneous D-Pad Controller */}
+        {/* Right Card: Omnidirectional 360° Human Gaze Joystick & D-Pad */}
         <div className="card dpad-card">
           <div className="card__header">
             <div>
-              <h2 className="card__title">Directional D-Pad & Multi-Axis Stepper</h2>
+              <h2 className="card__title">All-Round Axis Gaze Controller</h2>
               <span className="card__subtitle">
-                Independent single-axis steppers + simultaneous diagonal motion
+                360° omnidirectional spatial gaze pad + precision 8-way directional steppers
               </span>
+            </div>
+            <div className="joystick-toggle">
+              <label className="toggle-label" title="When enabled, releasing thumbstick returns head smoothly to center">
+                <input
+                  type="checkbox"
+                  checked={joystickSpring}
+                  onChange={(e) => setJoystickSpring(e.target.checked)}
+                />
+                Spring-To-Center
+              </label>
             </div>
           </div>
 
-          {/* 3x3 Joystick Grid (Cardinal + Diagonals + Center) */}
-          <div className="dpad-wrapper">
-            <div className="dpad-grid-3x3">
-              {/* Row 1 */}
-              <button
-                className="dpad-btn dpad-btn--diag"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepDiagonal(10, 10)}
-                title="Up + Left (Simultaneous)"
-                type="button"
+          <div className="control-panels-split">
+            {/* 360° Omnidirectional Trackpad Pad */}
+            <div className="omni-joystick-section">
+              <div
+                ref={joystickRef}
+                className="omni-pad"
+                onMouseDown={handleJoystickMouseDown}
+                onTouchStart={handleJoystickTouchStart}
+                title="Drag in any direction for fluid, human-like head movement"
               >
-                ↖️
-                <span className="dpad-btn__text">UP-LEFT</span>
-              </button>
+                <div className="omni-pad__rings">
+                  <div className="omni-pad__ring omni-pad__ring--outer" />
+                  <div className="omni-pad__ring omni-pad__ring--mid" />
+                  <div className="omni-pad__ring omni-pad__ring--inner" />
+                  <div className="omni-pad__cross-h" />
+                  <div className="omni-pad__cross-v" />
+                </div>
 
-              <button
-                className="dpad-btn dpad-btn--cardinal dpad-btn--up"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepTilt(10)}
-                title="Head Up (+10° Tilt only - Motor 2)"
-                type="button"
-              >
-                ⬆️
-                <span className="dpad-btn__text">UP (HEAD UP)</span>
-              </button>
+                {/* Draggable Gaze Puck */}
+                <div
+                  className={`omni-puck ${isDraggingJoystick ? "omni-puck--active" : ""}`}
+                  style={{
+                    transform: `translate(calc(-50% + ${joystickPos.x * 65}px), calc(-50% - ${joystickPos.y * 65}px))`,
+                  }}
+                >
+                  <div className="omni-puck__glow" />
+                  <div className="omni-puck__dot" />
+                </div>
 
-              <button
-                className="dpad-btn dpad-btn--diag"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepDiagonal(-10, 10)}
-                title="Up + Right (Simultaneous)"
-                type="button"
-              >
-                ↗️
-                <span className="dpad-btn__text">UP-RIGHT</span>
-              </button>
+                <div className="omni-pad__label omni-pad__label--top">⬆️ UP</div>
+                <div className="omni-pad__label omni-pad__label--bottom">⬇️ DOWN</div>
+                <div className="omni-pad__label omni-pad__label--left">⬅️ LEFT</div>
+                <div className="omni-pad__label omni-pad__label--right">➡️ RIGHT</div>
+              </div>
+              <span className="omni-pad__caption">360° Omnidirectional Gaze Pad</span>
+            </div>
 
-              {/* Row 2 */}
-              <button
-                className="dpad-btn dpad-btn--cardinal dpad-btn--left"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepPan(10)}
-                title="Pan Left (+10° Pan only - Motor 1)"
-                type="button"
-              >
-                ⬅️
-                <span className="dpad-btn__text">LEFT</span>
-              </button>
+            {/* Precision 8-Way D-Pad Grid */}
+            <div className="dpad-grid-wrapper">
+              <div className="dpad-grid-3x3">
+                <button
+                  className="dpad-btn dpad-btn--diag"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => handleStepDiagonal(10, 10)}
+                  title="Up + Left (Simultaneous)"
+                  type="button"
+                >
+                  ↖️
+                  <span className="dpad-btn__text">UP-L</span>
+                </button>
 
-              <button
-                className="dpad-btn dpad-btn--center"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={handleCenterBoth}
-                title="Center Both Motors (90°, 90°)"
-                type="button"
-              >
-                🎯
-                <span className="dpad-btn__text">CENTER BOTH</span>
-              </button>
+                <button
+                  className="dpad-btn dpad-btn--cardinal dpad-btn--up"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={handleStepTiltUp}
+                  title="Head Up (+10° Tilt only - Motor 2)"
+                  type="button"
+                >
+                  ⬆️
+                  <span className="dpad-btn__text">UP</span>
+                </button>
 
-              <button
-                className="dpad-btn dpad-btn--cardinal dpad-btn--right"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepPan(-10)}
-                title="Pan Right (-10° Pan only - Motor 1)"
-                type="button"
-              >
-                ➡️
-                <span className="dpad-btn__text">RIGHT</span>
-              </button>
+                <button
+                  className="dpad-btn dpad-btn--diag"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => handleStepDiagonal(-10, 10)}
+                  title="Up + Right (Simultaneous)"
+                  type="button"
+                >
+                  ↗️
+                  <span className="dpad-btn__text">UP-R</span>
+                </button>
 
-              {/* Row 3 */}
-              <button
-                className="dpad-btn dpad-btn--diag"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepDiagonal(10, -10)}
-                title="Down + Left (Simultaneous)"
-                type="button"
-              >
-                ↙️
-                <span className="dpad-btn__text">DOWN-LEFT</span>
-              </button>
+                <button
+                  className="dpad-btn dpad-btn--cardinal dpad-btn--left"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={handleStepPanLeft}
+                  title="Pan Left (+10° Pan only - Motor 1)"
+                  type="button"
+                >
+                  ⬅️
+                  <span className="dpad-btn__text">LEFT</span>
+                </button>
 
-              <button
-                className="dpad-btn dpad-btn--cardinal dpad-btn--down"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepTilt(-10)}
-                title="Chin Down (-10° Tilt only - Motor 2)"
-                type="button"
-              >
-                ⬇️
-                <span className="dpad-btn__text">DOWN (CHIN)</span>
-              </button>
+                <button
+                  className="dpad-btn dpad-btn--center"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={handleCenterBoth}
+                  title="Center Both Motors (90°, 90°)"
+                  type="button"
+                >
+                  🎯
+                  <span className="dpad-btn__text">CENTER</span>
+                </button>
 
-              <button
-                className="dpad-btn dpad-btn--diag"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepDiagonal(-10, -10)}
-                title="Down + Right (Simultaneous)"
-                type="button"
-              >
-                ↘️
-                <span className="dpad-btn__text">DOWN-RIGHT</span>
-              </button>
+                <button
+                  className="dpad-btn dpad-btn--cardinal dpad-btn--right"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={handleStepPanRight}
+                  title="Pan Right (-10° Pan only - Motor 1)"
+                  type="button"
+                >
+                  ➡️
+                  <span className="dpad-btn__text">RIGHT</span>
+                </button>
+
+                <button
+                  className="dpad-btn dpad-btn--diag"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => handleStepDiagonal(10, -10)}
+                  title="Down + Left (Simultaneous)"
+                  type="button"
+                >
+                  ↙️
+                  <span className="dpad-btn__text">DN-L</span>
+                </button>
+
+                <button
+                  className="dpad-btn dpad-btn--cardinal dpad-btn--down"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={handleStepTiltDown}
+                  title="Chin Down (-10° Tilt only - Motor 2)"
+                  type="button"
+                >
+                  ⬇️
+                  <span className="dpad-btn__text">DOWN</span>
+                </button>
+
+                <button
+                  className="dpad-btn dpad-btn--diag"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => handleStepDiagonal(-10, -10)}
+                  title="Down + Right (Simultaneous)"
+                  type="button"
+                >
+                  ↘️
+                  <span className="dpad-btn__text">DN-R</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -839,13 +1074,13 @@ export default function RobotControlPage() {
             </div>
           </div>
 
-          {/* Quick Pose Presets */}
+          {/* Human Expression & Presentation Pose Sequences */}
           <div className="presets-container">
             <h2 className="card__title presets-container__title">Quick Pose Presets</h2>
             <div className="preset-grid">
               <button
                 className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
                 onClick={handleCenterBoth}
                 type="button"
               >
@@ -853,50 +1088,55 @@ export default function RobotControlPage() {
                 <span className="preset-btn__label">Center (Home)</span>
                 <span className="preset-btn__angles">90°, 90°</span>
               </button>
+
               <button
                 className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => moveBoth(150, 90)}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
+                onClick={handlePresenterScan}
                 type="button"
               >
-                <span className="preset-btn__icon">⬅️</span>
-                <span className="preset-btn__label">Look Left</span>
-                <span className="preset-btn__angles">150°, 90°</span>
+                <span className="preset-btn__icon">🗣️</span>
+                <span className="preset-btn__label">Presenter Scan</span>
+                <span className="preset-btn__angles">Room Sweep</span>
               </button>
+
               <button
                 className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => moveBoth(30, 90)}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
+                onClick={handleThinkingGesture}
                 type="button"
               >
-                <span className="preset-btn__icon">➡️</span>
-                <span className="preset-btn__label">Look Right</span>
-                <span className="preset-btn__angles">30°, 90°</span>
+                <span className="preset-btn__icon">🤔</span>
+                <span className="preset-btn__label">Thinking Look</span>
+                <span className="preset-btn__angles">Up-Right Gaze</span>
               </button>
+
               <button
                 className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => moveBoth(90, 130)}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
+                onClick={handleAffirmativeNod}
                 type="button"
               >
-                <span className="preset-btn__icon">⬆️</span>
-                <span className="preset-btn__label">Look Up</span>
-                <span className="preset-btn__angles">90°, 130°</span>
+                <span className="preset-btn__icon">😊</span>
+                <span className="preset-btn__label">Natural Nod</span>
+                <span className="preset-btn__angles">Double Nod</span>
               </button>
+
               <button
                 className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => moveBoth(90, 50)}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
+                onClick={handleCuriousGlance}
                 type="button"
               >
-                <span className="preset-btn__icon">⬇️</span>
-                <span className="preset-btn__label">Look Down</span>
-                <span className="preset-btn__angles">90°, 50°</span>
+                <span className="preset-btn__icon">👀</span>
+                <span className="preset-btn__label">Curious Glance</span>
+                <span className="preset-btn__angles">Side Look</span>
               </button>
+
               <button
                 className="preset-btn preset-btn--special"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={handleSweepTest}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
+                onClick={handlePresenterScan}
                 type="button"
               >
                 <span className="preset-btn__icon">🔄</span>
@@ -931,7 +1171,7 @@ export default function RobotControlPage() {
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepPan(-5)}
+                onClick={() => sendTargetCoordinates(Math.max(0, targetPan - 5), targetTilt, speed, true)}
                 type="button"
               >
                 -5°
@@ -939,7 +1179,7 @@ export default function RobotControlPage() {
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepPan(-1)}
+                onClick={() => sendTargetCoordinates(Math.max(0, targetPan - 1), targetTilt, speed, true)}
                 type="button"
               >
                 -1°
@@ -951,14 +1191,14 @@ export default function RobotControlPage() {
                 step="0.5"
                 value={targetPan}
                 disabled={telemetry.is_emergency_stopped}
-                onChange={(e) => handlePanChange(parseFloat(e.target.value))}
+                onChange={(e) => sendTargetCoordinates(parseFloat(e.target.value), targetTilt, speed, true)}
                 className="servo-slider"
                 aria-label="Pan angle slider"
               />
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepPan(1)}
+                onClick={() => sendTargetCoordinates(Math.min(180, targetPan + 1), targetTilt, speed, true)}
                 type="button"
               >
                 +1°
@@ -966,7 +1206,7 @@ export default function RobotControlPage() {
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepPan(5)}
+                onClick={() => sendTargetCoordinates(Math.min(180, targetPan + 5), targetTilt, speed, true)}
                 type="button"
               >
                 +5°
@@ -989,7 +1229,7 @@ export default function RobotControlPage() {
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepTilt(-5)}
+                onClick={() => sendTargetCoordinates(targetPan, Math.max(30, targetTilt - 5), speed, true)}
                 type="button"
               >
                 -5°
@@ -997,7 +1237,7 @@ export default function RobotControlPage() {
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepTilt(-1)}
+                onClick={() => sendTargetCoordinates(targetPan, Math.max(30, targetTilt - 1), speed, true)}
                 type="button"
               >
                 -1°
@@ -1009,14 +1249,14 @@ export default function RobotControlPage() {
                 step="0.5"
                 value={targetTilt}
                 disabled={telemetry.is_emergency_stopped}
-                onChange={(e) => handleTiltChange(parseFloat(e.target.value))}
+                onChange={(e) => sendTargetCoordinates(targetPan, parseFloat(e.target.value), speed, true)}
                 className="servo-slider"
                 aria-label="Tilt angle slider"
               />
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepTilt(1)}
+                onClick={() => sendTargetCoordinates(targetPan, Math.min(150, targetTilt + 1), speed, true)}
                 type="button"
               >
                 +1°
@@ -1024,7 +1264,7 @@ export default function RobotControlPage() {
               <button
                 className="btn btn--icon"
                 disabled={telemetry.is_emergency_stopped}
-                onClick={() => stepTilt(5)}
+                onClick={() => sendTargetCoordinates(targetPan, Math.min(150, targetTilt + 5), speed, true)}
                 type="button"
               >
                 +5°
@@ -1057,7 +1297,6 @@ export default function RobotControlPage() {
               />
             </div>
 
-            {/* Quick Axis Inversion Toggles */}
             <div className="inversion-controls">
               <span className="inversion-controls__label">Hardware Direction Adjustment:</span>
               <div className="inversion-controls__buttons">

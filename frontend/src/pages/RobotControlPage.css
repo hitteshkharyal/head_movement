@@ -77,11 +77,11 @@
 }
 
 /* ========================================================================= */
-/* TOP GRID: 3D PREVIEW (LEFT) + D-PAD JOYSTICK CONTROLLER (RIGHT)           */
+/* TOP GRID: 3D PREVIEW (LEFT) + OMNIDIRECTIONAL GAZE CONTROLLER (RIGHT)     */
 /* ========================================================================= */
 .robot-control__top-grid {
   display: grid;
-  grid-template-columns: 1fr 1.3fr;
+  grid-template-columns: 1fr 1.35fr;
   gap: var(--space-6);
   align-items: stretch;
 }
@@ -103,12 +103,35 @@
   width: 100%;
   height: 240px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: radial-gradient(circle at center, rgba(59, 130, 246, 0.12) 0%, transparent 70%);
+  border: 1px dashed rgba(59, 130, 246, 0.25);
   border-radius: var(--radius-lg);
   perspective: 800px;
   margin: var(--space-2) 0;
+  cursor: grab;
+  position: relative;
+  user-select: none;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.gauge-stage--dragging {
+  cursor: grabbing;
+  border-color: var(--color-accent-cyan);
+  background: radial-gradient(circle at center, rgba(6, 182, 212, 0.18) 0%, transparent 75%);
+}
+
+.gauge-stage__hint {
+  position: absolute;
+  bottom: 8px;
+  font-size: 0.7rem;
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
 .head-avatar {
@@ -118,12 +141,13 @@
   border: 2px solid var(--color-accent-blue);
   border-radius: 40px 40px 50px 50px;
   box-shadow: 0 0 25px rgba(59, 130, 246, 0.3), inset 0 0 15px rgba(59, 130, 246, 0.2);
-  transition: transform 0.1s ease-out;
+  transition: transform 0.08s ease-out;
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
 }
 
 .head-avatar__eyes {
@@ -202,7 +226,7 @@
 }
 
 /* ========================================================================= */
-/* D-PAD CARD & CONTROLS                                                     */
+/* ALL-ROUND AXIS GAZE CONTROLLER & JOYSTICK                                 */
 /* ========================================================================= */
 .dpad-card {
   display: flex;
@@ -210,24 +234,198 @@
   gap: var(--space-4);
 }
 
-.dpad-wrapper {
+.joystick-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.control-panels-split {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .control-panels-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 360° Omnidirectional Trackpad */
+.omni-joystick-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.omni-pad {
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.8) 100%);
+  border: 2px solid rgba(59, 130, 246, 0.4);
+  position: relative;
+  cursor: crosshair;
+  user-select: none;
+  touch-action: none;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.15), inset 0 0 20px rgba(0, 0, 0, 0.6);
+  transition: border-color 0.2s ease;
+}
+
+.omni-pad:hover {
+  border-color: var(--color-accent-cyan);
+}
+
+.omni-pad__rings {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.omni-pad__ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px dashed rgba(59, 130, 246, 0.2);
+}
+
+.omni-pad__ring--outer {
+  width: 80%;
+  height: 80%;
+}
+
+.omni-pad__ring--mid {
+  width: 50%;
+  height: 50%;
+}
+
+.omni-pad__ring--inner {
+  width: 25%;
+  height: 25%;
+}
+
+.omni-pad__cross-h {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: rgba(59, 130, 246, 0.2);
+  transform: translateY(-50%);
+}
+
+.omni-pad__cross-v {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: 100%;
+  background: rgba(59, 130, 246, 0.2);
+  transform: translateX(-50%);
+}
+
+.omni-pad__label {
+  position: absolute;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: rgba(148, 163, 184, 0.7);
+  pointer-events: none;
+}
+
+.omni-pad__label--top {
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.omni-pad__label--bottom {
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.omni-pad__label--left {
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.omni-pad__label--right {
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.omni-puck {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  pointer-events: none;
+  transition: transform 0.05s ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.omni-puck__glow {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-accent-cyan) 0%, rgba(6, 182, 212, 0.3) 60%, transparent 100%);
+  animation: puck-pulse 2s infinite alternate;
+}
+
+.omni-puck__dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--color-accent-cyan);
+  box-shadow: 0 0 10px var(--color-accent-cyan);
+}
+
+.omni-puck--active .omni-puck__dot {
+  background: var(--color-accent-cyan);
+  border-color: #ffffff;
+}
+
+.omni-pad__caption {
+  font-size: 0.7rem;
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+}
+
+/* 8-Way D-Pad Grid */
+.dpad-grid-wrapper {
   display: flex;
   justify-content: center;
-  padding: var(--space-2) 0;
 }
 
 .dpad-grid-3x3 {
   display: grid;
-  grid-template-columns: repeat(3, 100px);
-  grid-template-rows: repeat(3, 75px);
-  gap: var(--space-2);
-}
-
-@media (max-width: 640px) {
-  .dpad-grid-3x3 {
-    grid-template-columns: repeat(3, 80px);
-    grid-template-rows: repeat(3, 65px);
-  }
+  grid-template-columns: repeat(3, 72px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 6px;
 }
 
 .dpad-btn {
@@ -238,9 +436,9 @@
   gap: 2px;
   background: var(--color-bg-primary);
   border: 1px solid var(--color-bg-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -249,9 +447,9 @@
 
 .dpad-btn:hover:not(:disabled) {
   border-color: var(--color-accent-blue);
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(59, 130, 246, 0.2);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 3px 10px rgba(59, 130, 246, 0.25);
 }
 
 .dpad-btn:active:not(:disabled) {
@@ -264,14 +462,14 @@
 }
 
 .dpad-btn__text {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   letter-spacing: 0.04em;
   font-weight: 700;
   color: var(--color-text-secondary);
 }
 
 .dpad-btn--cardinal {
-  border-color: rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.4);
   background: rgba(15, 23, 42, 0.9);
 }
 
@@ -290,7 +488,7 @@
 }
 
 .dpad-btn--center {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(168, 85, 247, 0.2));
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(168, 85, 247, 0.25));
   border: 1px solid var(--color-accent-blue);
 }
 
@@ -396,6 +594,7 @@
 .preset-btn__label {
   font-size: 0.7rem;
   font-weight: 600;
+  text-align: center;
 }
 
 .preset-btn__angles {
@@ -733,12 +932,6 @@
   font-family: monospace;
 }
 
-.wiring-note {
-  font-size: var(--font-size-xs);
-  color: #fcd34d;
-  margin-top: var(--space-2);
-}
-
 /* Calibration Drawer */
 .calibration-section {
   border: 1px solid rgba(59, 130, 246, 0.3);
@@ -828,6 +1021,15 @@
   }
   to {
     box-shadow: 0 0 16px var(--color-accent-cyan);
+  }
+}
+
+@keyframes puck-pulse {
+  from {
+    box-shadow: 0 0 6px var(--color-accent-cyan);
+  }
+  to {
+    box-shadow: 0 0 18px var(--color-accent-cyan);
   }
 }
 
