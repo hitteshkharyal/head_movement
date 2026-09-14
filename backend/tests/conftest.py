@@ -1,8 +1,15 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
+from app.db.init_db import init_db
 from hardware.mock_controller import MockController
 from hardware.servo_controller import ServoConfig
+
+
+@pytest.fixture(autouse=True)
+async def setup_test_db():
+    """Ensure all database tables are created before running tests."""
+    await init_db()
 
 
 def make_pan_config() -> ServoConfig:

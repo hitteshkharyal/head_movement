@@ -97,11 +97,20 @@ data/models/archived/
 data/recordings/
 data/logs/
 data/temp/
+backend/data/recordings/samples/*.npy
+backend/data/recordings/samples/*.json
+backend/data/recordings/sessions/*.npy
+backend/data/recordings/sessions/*.json
+backend/data/models/*/*.pkl
+backend/data/models/*/*.onnx
+backend/data/models/*/*.pt
+backend/data/models/*/*.h5
 *.pkl
 *.h5
 *.pt
 *.pth
 *.onnx
+*.npy
 
 # Logs
 *.log
