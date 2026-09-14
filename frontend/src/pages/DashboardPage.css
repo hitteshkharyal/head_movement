@@ -1,0 +1,192 @@
+.dashboard {
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+/* Header */
+.dashboard__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.dashboard__title {
+  font-size: var(--font-size-3xl);
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--color-text-primary) 0%, var(--color-accent-primary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: var(--space-1);
+}
+
+.dashboard__subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Status badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.status-badge--online {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--color-status-online);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-badge--offline {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-status-offline);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-badge--idle {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--color-status-idle);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+/* Status cards grid */
+.dashboard__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+
+.status-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-bg-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5) var(--space-5);
+  transition: border-color var(--transition-base), transform var(--transition-base);
+  cursor: default;
+}
+
+.status-card:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+.status-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.status-card__label {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot--online { background: var(--color-status-online); box-shadow: 0 0 6px var(--color-status-online); }
+.status-dot--offline { background: var(--color-status-offline); }
+.status-dot--idle { background: var(--color-status-idle); }
+.status-dot--warning { background: var(--color-status-warning); }
+
+.status-card__value {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.status-card__detail {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Info bar */
+.dashboard__info-bar {
+  display: flex;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-bg-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  flex-wrap: wrap;
+}
+
+.dashboard__info-bar strong {
+  color: var(--color-accent-primary);
+  font-weight: 600;
+}
+
+/* Phase tracker */
+.dashboard__phases h2 {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--space-4);
+}
+
+.phases-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.phase-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-bg-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  transition: border-color var(--transition-fast);
+}
+
+.phase-badge--done {
+  border-color: rgba(16, 185, 129, 0.4);
+  color: var(--color-text-secondary);
+}
+
+.phase-badge__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-bg-elevated);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.phase-badge--done .phase-badge__num {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--color-status-online);
+}
+
+.phase-badge__name {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}

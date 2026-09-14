@@ -1,0 +1,32 @@
+.stub-page {
+  max-width: 800px;
+  padding: var(--space-8) 0;
+}
+
+.stub-page h1 {
+  font-size: var(--font-size-3xl);
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--color-text-primary) 0%, var(--color-accent-primary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: var(--space-4);
+}
+
+.stub-page__note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+  margin-bottom: var(--space-6);
+}
+
+.stub-page__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-full);
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--color-status-idle);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
