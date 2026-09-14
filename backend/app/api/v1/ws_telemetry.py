@@ -86,6 +86,10 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
                     elif cmd_type == "center_tilt":
                         if hasattr(controller, "move_tilt"):
                             await controller.move_tilt(hw.tilt_config.center_angle)
+                    elif cmd_type == "gesture":
+                        g_name = command.get("name") or command.get("gesture_name")
+                        if g_name and hasattr(controller, "execute_gesture"):
+                            await controller.execute_gesture(g_name)
                     elif cmd_type == "emergency_stop":
                         await controller.emergency_stop()
                     elif cmd_type == "resume":

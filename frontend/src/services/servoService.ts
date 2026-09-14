@@ -131,6 +131,11 @@ export const servoService = {
     return res.data;
   },
 
+  async executeGesture(gestureName: string): Promise<{ success: boolean; gesture: string; status: string }> {
+    const res = await axios.post<{ success: boolean; gesture: string; status: string }>(`${API_BASE}/gesture/${gestureName}`);
+    return res.data;
+  },
+
   async stop(): Promise<ServoStatus> {
     const res = await axios.post<ServoStatus>(`${API_BASE}/stop`);
     return res.data;

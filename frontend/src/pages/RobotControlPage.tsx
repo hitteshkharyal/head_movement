@@ -438,6 +438,32 @@ export default function RobotControlPage() {
     setActivePresetSequence(null);
   };
 
+  // YES Gesture: Smooth up-and-down vertical nod (keeps Pan strictly steady at current angle)
+  const handleYesGesture = async () => {
+    sendCommand({ type: "gesture", name: "yes" });
+    const currentPan = panRef.current;
+    await executeSequence("yes_gesture", [
+      { pan: currentPan, tilt: 115, delay: 280 },
+      { pan: currentPan, tilt: 65, delay: 280 },
+      { pan: currentPan, tilt: 110, delay: 240 },
+      { pan: currentPan, tilt: 70, delay: 240 },
+      { pan: currentPan, tilt: 90, delay: 250 },
+    ]);
+  };
+
+  // NO Gesture: Smooth left-and-right horizontal head shake (keeps Tilt strictly steady at current angle)
+  const handleNoGesture = async () => {
+    sendCommand({ type: "gesture", name: "no" });
+    const currentTilt = tiltRef.current;
+    await executeSequence("no_gesture", [
+      { pan: 125, tilt: currentTilt, delay: 280 },
+      { pan: 55, tilt: currentTilt, delay: 280 },
+      { pan: 120, tilt: currentTilt, delay: 240 },
+      { pan: 60, tilt: currentTilt, delay: 240 },
+      { pan: 90, tilt: currentTilt, delay: 250 },
+    ]);
+  };
+
   const handlePresenterScan = () => {
     executeSequence("presenterScan", [
       { pan: 140, tilt: 90, delay: 600 },
@@ -458,12 +484,7 @@ export default function RobotControlPage() {
   };
 
   const handleAffirmativeNod = () => {
-    executeSequence("nod", [
-      { pan: panRef.current, tilt: 65, delay: 250 },
-      { pan: panRef.current, tilt: 110, delay: 250 },
-      { pan: panRef.current, tilt: 75, delay: 200 },
-      { pan: panRef.current, tilt: 90, delay: 250 },
-    ]);
+    handleYesGesture();
   };
 
   const handleCuriousGlance = () => {
@@ -1076,7 +1097,49 @@ export default function RobotControlPage() {
 
           {/* Human Expression & Presentation Pose Sequences */}
           <div className="presets-container">
-            <h2 className="card__title presets-container__title">Quick Pose Presets</h2>
+            <div className="presets-header-row">
+              <h2 className="card__title presets-container__title">🎭 Human Gestures & Motion Presets</h2>
+              {activePresetSequence && (
+                <span className="gesture-active-indicator">
+                  ✨ Executing {activePresetSequence === "yes_gesture" ? "YES (Up & Down Nod)" : activePresetSequence === "no_gesture" ? "NO (Left & Right Shake)" : activePresetSequence}...
+                </span>
+              )}
+            </div>
+
+            {/* Featured YES & NO Gesture Cards */}
+            <div className="gesture-grid-featured">
+              <button
+                className={`preset-btn preset-btn--yes ${activePresetSequence === "yes_gesture" ? "preset-btn--active-pulse" : ""}`}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
+                onClick={handleYesGesture}
+                title="Execute YES Gesture (Smooth Up & Down Vertical Nodding)"
+                type="button"
+              >
+                <div className="preset-btn__top-row">
+                  <span className="preset-btn__icon">👍</span>
+                  <span className="preset-btn__badge preset-btn__badge--yes">YES (NOD)</span>
+                </div>
+                <span className="preset-btn__label">YES Gesture</span>
+                <span className="preset-btn__angles">↕️ Up & Down Nod (Tilt)</span>
+              </button>
+
+              <button
+                className={`preset-btn preset-btn--no ${activePresetSequence === "no_gesture" ? "preset-btn--active-pulse" : ""}`}
+                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
+                onClick={handleNoGesture}
+                title="Execute NO Gesture (Smooth Left & Right Horizontal Shaking)"
+                type="button"
+              >
+                <div className="preset-btn__top-row">
+                  <span className="preset-btn__icon">👎</span>
+                  <span className="preset-btn__badge preset-btn__badge--no">NO (SHAKE)</span>
+                </div>
+                <span className="preset-btn__label">NO Gesture</span>
+                <span className="preset-btn__angles">↔️ Left & Right Shake (Pan)</span>
+              </button>
+            </div>
+
+            {/* Additional Expression & Pose Presets */}
             <div className="preset-grid">
               <button
                 className="preset-btn"
@@ -1114,34 +1177,12 @@ export default function RobotControlPage() {
               <button
                 className="preset-btn"
                 disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
-                onClick={handleAffirmativeNod}
-                type="button"
-              >
-                <span className="preset-btn__icon">😊</span>
-                <span className="preset-btn__label">Natural Nod</span>
-                <span className="preset-btn__angles">Double Nod</span>
-              </button>
-
-              <button
-                className="preset-btn"
-                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
                 onClick={handleCuriousGlance}
                 type="button"
               >
                 <span className="preset-btn__icon">👀</span>
                 <span className="preset-btn__label">Curious Glance</span>
                 <span className="preset-btn__angles">Side Look</span>
-              </button>
-
-              <button
-                className="preset-btn preset-btn--special"
-                disabled={telemetry.is_emergency_stopped || !!activePresetSequence}
-                onClick={handlePresenterScan}
-                type="button"
-              >
-                <span className="preset-btn__icon">🔄</span>
-                <span className="preset-btn__label">Sweep Sequence</span>
-                <span className="preset-btn__angles">Smooth Test</span>
               </button>
             </div>
           </div>

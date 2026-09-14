@@ -372,9 +372,23 @@ void parseAndExecuteCommand(String cmd) {
     return;
   }
 
-  // 10. Gesture Command: <GESTURE:nod>
+  // 10. Gesture Command: <GESTURE:yes>, <GESTURE:nod>, <GESTURE:no>, <GESTURE:shake>
   if (cmd.startsWith("GESTURE:")) {
     String gName = cmd.substring(8);
+    gName.trim();
+    String gLower = gName;
+    gLower.toLowerCase();
+
+    if (gLower == "yes" || gLower == "nod" || gLower == "yes_nod") {
+      executeYesNod();
+      sendResponse("<ACK:GESTURE:YES>");
+      return;
+    } else if (gLower == "no" || gLower == "shake" || gLower == "no_shake") {
+      executeNoShake();
+      sendResponse("<ACK:GESTURE:NO>");
+      return;
+    }
+
     sendResponse("<ACK:GESTURE:" + gName + ">");
     return;
   }
@@ -469,5 +483,50 @@ void broadcastTelemetry() {
     sendResponse(String(buf));
   }
 }
+
+// -----------------------------------------------------------------------------
+// PREDEFINED HUMAN GESTURE ROUTINES (YES NOD & NO SHAKE)
+// -----------------------------------------------------------------------------
+
+void executeYesNod() {
+  // YES Gesture: Smooth up-and-down vertical nod (Tilt moves, Pan locked)
+  float basePan = currentPanAngle;
+  float nodWaypoints[] = {115.0, 65.0, 110.0, 70.0, 90.0};
+  int waypointCount = 5;
+
+  for (int i = 0; i < waypointCount; i++) {
+    if (isEmergencyStop) break;
+    targetPanAngle = basePan;
+    targetTiltAngle = nodWaypoints[i];
+    movementSpeed = 85;
+    isMoving = true;
+    while (isMoving && !isEmergencyStop) {
+      updateServoMovement();
+      delay(4);
+    }
+    delay(80);
+  }
+}
+
+void executeNoShake() {
+  // NO Gesture: Smooth left-and-right horizontal shake (Pan moves, Tilt locked)
+  float baseTilt = currentTiltAngle;
+  float shakeWaypoints[] = {125.0, 55.0, 120.0, 60.0, 90.0};
+  int waypointCount = 5;
+
+  for (int i = 0; i < waypointCount; i++) {
+    if (isEmergencyStop) break;
+    targetPanAngle = shakeWaypoints[i];
+    targetTiltAngle = baseTilt;
+    movementSpeed = 85;
+    isMoving = true;
+    while (isMoving && !isEmergencyStop) {
+      updateServoMovement();
+      delay(4);
+    }
+    delay(80);
+  }
+}
+
 
 

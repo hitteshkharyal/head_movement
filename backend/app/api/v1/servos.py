@@ -164,6 +164,31 @@ async def center_tilt_only(hw: HardwareManager = Depends(get_hardware_manager)):
     return await get_servo_status(hw)
 
 
+@router.post("/gesture/{gesture_name}")
+async def execute_gesture(
+    gesture_name: str,
+    hw: HardwareManager = Depends(get_hardware_manager),
+):
+    """
+    Execute a predefined named gesture (e.g. 'yes', 'no', 'nod', 'shake') on the robot servos.
+    """
+    controller = hw.controller
+    if hasattr(controller, "is_emergency_stopped") and controller.is_emergency_stopped:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="Emergency Stop active",
+        )
+    if not (await controller.get_status()).connected:
+        await controller.connect()
+    success = await controller.execute_gesture(gesture_name)
+    return {
+        "success": success,
+        "gesture": gesture_name,
+        "status": "completed" if success else "failed",
+    }
+
+
+
 @router.post("/stop", response_model=ServoStatusResponse)
 async def stop_servos(hw: HardwareManager = Depends(get_hardware_manager)):
     """Smoothly stop ongoing servo movement."""

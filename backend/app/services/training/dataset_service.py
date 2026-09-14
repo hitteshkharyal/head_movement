@@ -22,6 +22,8 @@ from app.models.training_sample import TrainingSample as SampleModel
 logger = logging.getLogger(__name__)
 
 DEFAULT_GESTURE_CLASSES = [
+    {"name": "yes_nod", "description": "Affirmative head nod up-and-down (agreement/yes)", "type": "predefined"},
+    {"name": "no_shake", "description": "Side-to-side head shake left-and-right (disagreement/no)", "type": "predefined"},
     {"name": "nod", "description": "Affirmative head nod (agreement/acknowledgment)", "type": "predefined"},
     {"name": "shake", "description": "Side-to-side head shake (disagreement/negation)", "type": "predefined"},
     {"name": "head_tilt_left", "description": "Head tilted towards left shoulder", "type": "predefined"},

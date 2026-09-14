@@ -123,3 +123,27 @@ async def test_ports_and_connection_endpoints():
         assert resp_disc.status_code == 200
         assert resp_disc.json()["connected"] is False
 
+
+@pytest.mark.asyncio
+async def test_execute_gesture_yes_and_no():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Reconnect to mock controller
+        await client.post("/api/v1/servos/connect", json={"mode": "mock"})
+
+        # Execute YES gesture (Up & Down nod)
+        resp_yes = await client.post("/api/v1/servos/gesture/yes")
+        assert resp_yes.status_code == 200
+        data_yes = resp_yes.json()
+        assert data_yes["success"] is True
+        assert data_yes["gesture"] == "yes"
+        assert data_yes["status"] == "completed"
+
+        # Execute NO gesture (Left & Right shake)
+        resp_no = await client.post("/api/v1/servos/gesture/no")
+        assert resp_no.status_code == 200
+        data_no = resp_no.json()
+        assert data_no["success"] is True
+        assert data_no["gesture"] == "no"
+        assert data_no["status"] == "completed"
+
+

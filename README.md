@@ -50,7 +50,7 @@ A production-grade, full-stack software platform for an **AI-powered Humanoid Pr
 | **Phase 1** | **Hardware Abstraction Layer (HAL)** | `HardwareController` abstract interface, `MockController` simulator, `ESP32Controller` serial bridge, S-curve trajectory smoothing, angle clamping, E-Stop safety interlocks, and calibration REST APIs. | `43/43` Pytest<br>`7/7` Vitest | ✅ Complete |
 | **Phase 2** | **Computer Vision & 3D Head Tracking** | MediaPipe Face Mesh 468-landmark 3D pose estimation, Euler angle extraction (yaw, pitch, roll), smoothing filters, Mirror & Follow tracking modes, and live MJPEG streaming with HUD overlays. | `52/52` Pytest<br>`11/11` Vitest | ✅ Complete |
 | **Phase 3** | **Gesture Studio & Active Learning** | Dynamic gesture recording pipeline, trajectory feature extraction, dataset curation & auto-labeling, training metrics evaluation, and predefined gesture sequences (NOD, SHAKE, TILT). | `59/59` Pytest<br>`15/15` Vitest | ✅ Complete |
-| **Hardware Bridge** | **Multi-Transport ESP32 Firmware** | Dual-mode firmware (USB Serial 115200 + Wireless Wi-Fi TCP 8080), dynamic COM port scanner, 360° omnidirectional gaze pad, direct 3D face drag-to-look, zero-cross-talk single-axis steppers, independent centering (`Center Pan`, `Center Tilt`, `Center Both`), and hardware direction inversion. | `60/60` Pytest<br>`15/15` Vitest | ✅ Complete |
+| **Hardware Bridge & Human Gestures** | **Multi-Transport Firmware & Gestures** | • **YES Gesture (Up & Down Nod)**: Vertical multi-cycle nodding with Pan strictly locked.<br>• **NO Gesture (Left & Right Shake)**: Horizontal multi-cycle head shake with Tilt strictly locked.<br>• **360° Omnidirectional Gaze Pad** + Direct 3D Face Drag-to-Look.<br>• **Zero-Cross-Talk Steppers** & Independent Centering (`Center Pan`, `Center Tilt`, `Center Both`).<br>• **Dual Hardware Transports**: USB Serial 115200 + Wireless Wi-Fi TCP 8080. | `61/61` Pytest<br>`16/16` Vitest | ✅ Complete |
 | **Phase 4** | **Voice & Audio Pipeline** | Speech-to-Text (STT via Whisper), Wake Word detection, and Text-to-Speech (TTS) with viseme/gesture synchronization. | — | ⏳ Awaiting Approval |
 | **Phase 5** | **Presentation Flow Controller** | Script orchestration engine, slide sync, Q&A handling, and audience attention switching. | — | ⏳ Pending |
 | **Phase 6** | **Cloud Telemetry & Diagnostics** | Fleet diagnostics, remote OTA update hooks, and cloud session analytics. | — | ⏳ Pending |
@@ -96,18 +96,20 @@ A production-grade, full-stack software platform for an **AI-powered Humanoid Pr
 
 Navigate to **`http://localhost:5173/robot-control`**:
 
-1. **360° Omnidirectional Gaze Joystick**: Click and drag the glowing thumbstick puck across the circular radar pad to smoothly look in any spherical direction (360° yaw/pitch interpolation).
-2. **Direct 3D Face Drag-to-Look**: Click and drag directly on the 3D Head Avatar to naturally turn the robot's head in 3D space with your mouse.
-3. **Independent 8-Way D-Pad Steppers**:
+1. **👍 YES Gesture (Up & Down Nod)**: 1-click trigger executes natural vertical nodding (Tilt: `115°` ➔ `65°` ➔ `110°` ➔ `70°` ➔ `90°`) while maintaining fixed horizontal Pan orientation.
+2. **👎 NO Gesture (Left & Right Shake)**: 1-click trigger executes natural horizontal head shaking (Pan: `125°` ➔ `55°` ➔ `120°` ➔ `60°` ➔ `90°`) while maintaining fixed vertical Tilt angle.
+3. **360° Omnidirectional Gaze Joystick**: Click and drag the glowing thumbstick puck across the circular radar pad to smoothly look in any spherical direction (360° yaw/pitch interpolation).
+4. **Direct 3D Face Drag-to-Look**: Click and drag directly on the 3D Head Avatar to naturally turn the robot's head in 3D space with your mouse.
+5. **Independent 8-Way D-Pad Steppers**:
    - `⬆️ UP` / `⬇️ DOWN`: Steps only the vertical tilt angle without altering horizontal position.
    - `⬅️ LEFT` / `➡️ RIGHT`: Steps only the horizontal pan angle without altering vertical position.
    - `↖️ UP-L`, `↗️ UP-R`, `↙️ DN-L`, `↘️ DN-R`: Moves both motors simultaneously.
-4. **Independent & Dual Centering**:
+6. **Independent & Dual Centering**:
    - `🎯 Center Pan`: Resets only Motor 1 to `90°` (Horizontal forward).
    - `🎯 Center Tilt`: Resets only Motor 2 to `90°` (Level gaze).
    - `🎯 Center Both`: Resets both motors to `90°, 90°`.
-5. **Hardware Direction Inversion**: 1-click **`⇄ Invert Pan`** and **`⇅ Invert Tilt`** toggles instantly mirror motor movement if horns were mounted conversely.
-6. **Dual Hardware Transports**: Connect via USB Serial (`COMx` @ 115200 baud) or Wireless Wi-Fi TCP Socket (`Port 8080`).
+7. **Hardware Direction Inversion**: 1-click **`⇄ Invert Pan`** and **`⇅ Invert Tilt`** toggles instantly mirror motor movement if horns were mounted conversely.
+8. **Dual Hardware Transports**: Connect via USB Serial (`COMx` @ 115200 baud) or Wireless Wi-Fi TCP Socket (`Port 8080`).
 
 ---
 
@@ -171,14 +173,14 @@ Open **`http://localhost:5173`** in your browser.
 cd backend
 .venv\Scripts\activate
 pytest tests -v
-# Output: 60 passed in ~5.0s
+# Output: 61 passed in ~5.0s
 ```
 
 ### Frontend Test Suite (Vitest)
 ```bash
 cd frontend
 npm test -- --run
-# Output: 15 passed in ~3.5s
+# Output: 16 passed in ~3.5s
 ```
 
 ---

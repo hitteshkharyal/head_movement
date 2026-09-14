@@ -116,7 +116,24 @@ class MockController(HardwareController):
         )
 
     async def execute_gesture(self, gesture_name: str) -> bool:
+        if self._emergency_stopped:
+            return False
         self._record("execute_gesture", {"name": gesture_name})
+        g_lower = gesture_name.lower().strip()
+        if g_lower in ("yes", "nod", "yes_nod"):
+            base_pan = self._pan_angle
+            for target_tilt in [115.0, 65.0, 110.0, 70.0, 90.0]:
+                if self._emergency_stopped:
+                    break
+                await self.move_pan_tilt(base_pan, target_tilt, speed=90)
+                await asyncio.sleep(0.01)
+        elif g_lower in ("no", "shake", "no_shake"):
+            base_tilt = self._tilt_angle
+            for target_pan in [125.0, 55.0, 120.0, 60.0, 90.0]:
+                if self._emergency_stopped:
+                    break
+                await self.move_pan_tilt(target_pan, base_tilt, speed=90)
+                await asyncio.sleep(0.01)
         return True
 
     def update_config(self, pan_config: ServoConfig, tilt_config: ServoConfig) -> None:

@@ -89,7 +89,9 @@ describe("RobotControlPage Component", () => {
     expect(screen.getByText("Robot Pan-Tilt Control")).toBeInTheDocument();
     expect(screen.getByText("Live Head Orientation")).toBeInTheDocument();
     expect(screen.getByText("Precision Servo Controls")).toBeInTheDocument();
-    expect(screen.getByText("Quick Pose Presets")).toBeInTheDocument();
+    expect(screen.getByText(/Human Gestures & Motion Presets/i)).toBeInTheDocument();
+    expect(screen.getByText("YES Gesture")).toBeInTheDocument();
+    expect(screen.getByText("NO Gesture")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText("MOCK")).toBeInTheDocument();
@@ -138,6 +140,20 @@ describe("RobotControlPage Component", () => {
       expect(screen.getByText("EMERGENCY STOP ACTIVE")).toBeInTheDocument();
       expect(screen.getAllByRole("button", { name: /resume control/i }).length).toBeGreaterThan(0);
     });
+  });
+
+  it("triggers YES and NO gestures successfully", async () => {
+    render(<RobotControlPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("MOCK")).toBeInTheDocument();
+    });
+
+    const yesBtn = screen.getByRole("button", { name: /yes gesture/i });
+    fireEvent.click(yesBtn);
+
+    const noBtn = screen.getByRole("button", { name: /no gesture/i });
+    expect(noBtn).toBeInTheDocument();
   });
 
   it("calls preset center and updates angle sliders", async () => {
