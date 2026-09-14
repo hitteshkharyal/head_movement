@@ -1,0 +1,48 @@
+from typing import List, Optional
+from pydantic import BaseModel, Field
+
+
+class ServoMoveRequest(BaseModel):
+    pan_angle: Optional[float] = Field(None, description="Target Pan angle in degrees (-90 to +90 or 0 to 180)")
+    tilt_angle: Optional[float] = Field(None, description="Target Tilt angle in degrees (-45 to +45 or 0 to 180)")
+    speed: int = Field(100, ge=1, le=100, description="Movement speed percentage 1-100")
+    smooth: bool = Field(True, description="Enable S-curve trajectory smoothing")
+
+
+class ServoSingleAxisMoveRequest(BaseModel):
+    angle: float = Field(..., description="Target angle in degrees")
+    speed: int = Field(100, ge=1, le=100, description="Movement speed percentage 1-100")
+
+
+class ServoConfigItem(BaseModel):
+    servo_name: str
+    axis: str
+    min_angle: float
+    max_angle: float
+    center_angle: float
+    speed: float
+    sensitivity: float
+    trim_offset: float = 0.0
+    invert: bool = False
+    dead_zone: float = 2.0
+
+
+class ServoConfigUpdateRequest(BaseModel):
+    servos: List[ServoConfigItem]
+
+
+class ServoStatusResponse(BaseModel):
+    connected: bool
+    controller_type: str
+    pan_angle: float
+    tilt_angle: float
+    is_moving: bool
+    is_emergency_stopped: bool
+    latency_ms: float
+    error: Optional[str] = None
+
+
+class EmergencyStopResponse(BaseModel):
+    status: str
+    emergency_stopped: bool
+    message: str

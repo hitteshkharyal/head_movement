@@ -4,10 +4,12 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.api.v1.router import api_router
+from app.api.v1 import ws_telemetry
 from app.core.config import settings
 from app.core.exceptions import AppError
 from app.core.logging import setup_logging, get_logger
 from app.db.init_db import init_db
+from app.services.hardware.hardware_manager import get_hardware_manager
 
 logger = get_logger(__name__)
 _start_time = time.time()
@@ -29,6 +31,10 @@ async def lifespan(app: FastAPI):
     ]:
         directory.mkdir(parents=True, exist_ok=True)
 
+    # Initialize and connect hardware controller
+    hw = get_hardware_manager()
+    await hw.controller.connect()
+
     logger.info(
         "Application ready",
         env=settings.app_env,
@@ -36,6 +42,9 @@ async def lifespan(app: FastAPI):
         debug=settings.app_debug,
     )
     yield
+    # Graceful shutdown
+    await hw.controller.stop()
+    await hw.controller.disconnect()
     logger.info("Shutting down AI Humanoid Presentation Robot API")
 
 
@@ -67,3 +76,4 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 
 
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(ws_telemetry.router, prefix="/ws")

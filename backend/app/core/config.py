@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     # Hardware / ESP32
     esp32_connection_type: str = "mock"
     esp32_port: str = "COM3"
+    esp32_serial_port: str = "COM3"
     esp32_host: str = "192.168.1.100"
+    esp32_wifi_host: str = "192.168.1.100"
     esp32_wifi_port: int = 80
     esp32_websocket_port: int = 81
     esp32_baud_rate: int = 115200
@@ -36,10 +38,12 @@ class Settings(BaseSettings):
     pan_max_angle: float = 180.0
     pan_center_angle: float = 90.0
     pan_speed: float = 50.0
+    pan_sensitivity: float = 0.5
     tilt_min_angle: float = 30.0
     tilt_max_angle: float = 150.0
     tilt_center_angle: float = 90.0
     tilt_speed: float = 50.0
+    tilt_sensitivity: float = 0.5
 
     # Camera
     camera_index: int = 0
