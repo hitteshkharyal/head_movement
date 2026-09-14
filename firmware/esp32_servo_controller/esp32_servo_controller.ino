@@ -20,6 +20,8 @@
 
 #include <ESP32Servo.h>
 #include <WiFi.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 // --- PIN DEFINITIONS ---
 #define PIN_SERVO_PAN   18   // GPIO 18 for Pan (Yaw - Horizontal)
@@ -27,8 +29,8 @@
 #define PIN_LED_STATUS   2   // Built-in blue LED for connection & motion status
 
 // --- WIRELESS WI-FI CONFIGURATION (OPTIONAL) ---
-// Set ENABLE_WIFI to true to enable wireless robot control over your home/office Wi-Fi.
-#define ENABLE_WIFI false
+// Set ENABLE_WIFI to true to enable wireless robot control over your home/office Wi-Fi or PC Hotspot.
+#define ENABLE_WIFI true
 const char* WIFI_SSID     = "pc_h";
 const char* WIFI_PASSWORD = "12345678";
 const uint16_t TCP_PORT   = 8080;
@@ -82,9 +84,18 @@ void sendResponse(const String& msg) {
 }
 
 void setup() {
-  // Initialize USB Serial port
+  // 1. Disable hardware brownout detector to prevent sudden resets during servo startup surges
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
+  // 2. Initialize USB Serial port with buffer expansion
   Serial.begin(115200);
+  delay(600); // Allow USB-UART bridge to settle
   
+  Serial.println();
+  Serial.println("==================================================");
+  Serial.println("🤖 AI HUMANOID ROBOT - ESP32 SERVO CONTROLLER V1.2");
+  Serial.println("==================================================");
+
   pinMode(PIN_LED_STATUS, OUTPUT);
   digitalWrite(PIN_LED_STATUS, LOW);
 
@@ -115,24 +126,28 @@ void setup() {
 
   // Initialize Wi-Fi if enabled
   if (ENABLE_WIFI) {
-    Serial.printf("[WiFi] Connecting to: %s ...\n", WIFI_SSID);
+    Serial.printf("[WiFi] Connecting to SSID: '%s' ...\n", WIFI_SSID);
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     
     unsigned long startAttempt = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - startAttempt < 10000)) {
-      delay(250);
+      delay(300);
       Serial.print(".");
     }
     
     if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("\n[WiFi] Connected successfully!");
-      Serial.print("[WiFi] IP Address: ");
+      Serial.println();
+      Serial.println("==================================================");
+      Serial.println("✅ [WiFi] CONNECTED SUCCESSFULLY!");
+      Serial.print("📡 [WiFi] ESP32 IP Address : ");
       Serial.println(WiFi.localIP());
-      Serial.printf("[WiFi] TCP Server listening on port %d\n", TCP_PORT);
+      Serial.printf("🔌 [WiFi] TCP Socket Port  : %d\n", TCP_PORT);
+      Serial.println("==================================================");
       wifiServer.begin();
     } else {
-      Serial.println("\n[WiFi] Connection timed out. Operating in USB Serial mode.");
+      Serial.println();
+      Serial.printf("⚠️ [WiFi] Could not connect to '%s' (Status: %d). Continuing in USB Serial mode.\n", WIFI_SSID, WiFi.status());
     }
   }
 
