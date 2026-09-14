@@ -190,7 +190,7 @@ export default function RobotControlPage() {
     }
   };
 
-  // Step adjustments
+  // Step adjustments (moves strictly ONE axis without altering the other)
   const adjustAngle = (axis: "pan" | "tilt", delta: number) => {
     if (axis === "pan") {
       const clamped = Math.max(0, Math.min(180, targetPan + delta));
@@ -198,6 +198,33 @@ export default function RobotControlPage() {
     } else {
       const clamped = Math.max(30, Math.min(150, targetTilt + delta));
       handleTiltChange(clamped);
+    }
+  };
+
+  // Quick Invert & Pin Swap Toggles
+  const handleTogglePanInvert = async () => {
+    if (calibration.length < 2) return;
+    const clone = [...calibration];
+    const panIdx = clone.findIndex((c) => c.servo_name === "pan");
+    if (panIdx >= 0) {
+      clone[panIdx].invert = !clone[panIdx].invert;
+      setCalibration(clone);
+      await servoService.updateCalibration(clone);
+      setHardwareMsg(`Pan direction ${clone[panIdx].invert ? "INVERTED (Mirrored)" : "NORMAL"}`);
+      setTimeout(() => setHardwareMsg(null), 3000);
+    }
+  };
+
+  const handleToggleTiltInvert = async () => {
+    if (calibration.length < 2) return;
+    const clone = [...calibration];
+    const tiltIdx = clone.findIndex((c) => c.servo_name === "tilt");
+    if (tiltIdx >= 0) {
+      clone[tiltIdx].invert = !clone[tiltIdx].invert;
+      setCalibration(clone);
+      await servoService.updateCalibration(clone);
+      setHardwareMsg(`Tilt direction ${clone[tiltIdx].invert ? "INVERTED (Mirrored)" : "NORMAL"}`);
+      setTimeout(() => setHardwareMsg(null), 3000);
     }
   };
 
@@ -213,6 +240,7 @@ export default function RobotControlPage() {
       }
     }
   };
+
 
   const handleCenter = async () => {
     if (!sendCommand({ type: "center" })) {
@@ -769,6 +797,90 @@ export default function RobotControlPage() {
                 aria-label="Movement speed"
               />
             </div>
+
+            {/* Quick Axis Inversion Toggles */}
+            <div className="inversion-controls">
+              <span className="inversion-controls__label">Hardware Direction Adjustments:</span>
+              <div className="inversion-controls__buttons">
+                <button
+                  className={`btn btn--small ${calibration.find((c) => c.servo_name === "pan")?.invert ? "btn--primary" : "btn--secondary"}`}
+                  onClick={handleTogglePanInvert}
+                  title="Invert Pan (Left ⇄ Right) axis direction"
+                  type="button"
+                >
+                  ⇄ Invert Pan {calibration.find((c) => c.servo_name === "pan")?.invert ? "(ON)" : "(OFF)"}
+                </button>
+                <button
+                  className={`btn btn--small ${calibration.find((c) => c.servo_name === "tilt")?.invert ? "btn--primary" : "btn--secondary"}`}
+                  onClick={handleToggleTiltInvert}
+                  title="Invert Tilt (Up ⇄ Down) axis direction"
+                  type="button"
+                >
+                  ⇅ Invert Tilt {calibration.find((c) => c.servo_name === "tilt")?.invert ? "(ON)" : "(OFF)"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Directional D-Pad (Virtual Joystick) */}
+          <div className="card dpad-card">
+            <h2 className="card__title">Directional D-Pad (Single-Axis Stepper)</h2>
+            <p className="card__subtitle">Move strictly one motor without affecting the other</p>
+            <div className="dpad-wrapper">
+              <div className="dpad-grid">
+                <div />
+                <button
+                  className="dpad-btn dpad-btn--up"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => adjustAngle("tilt", 10)}
+                  title="Tilt Up (+10°)"
+                >
+                  ⬆️
+                  <span className="dpad-btn__text">UP</span>
+                </button>
+                <div />
+
+                <button
+                  className="dpad-btn dpad-btn--left"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => adjustAngle("pan", 10)}
+                  title="Pan Left (+10°)"
+                >
+                  ⬅️
+                  <span className="dpad-btn__text">LEFT</span>
+                </button>
+                <button
+                  className="dpad-btn dpad-btn--center"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={handleCenter}
+                  title="Center Both Motors (90°, 90°)"
+                >
+                  🎯
+                  <span className="dpad-btn__text">CENTER</span>
+                </button>
+                <button
+                  className="dpad-btn dpad-btn--right"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => adjustAngle("pan", -10)}
+                  title="Pan Right (-10°)"
+                >
+                  ➡️
+                  <span className="dpad-btn__text">RIGHT</span>
+                </button>
+
+                <div />
+                <button
+                  className="dpad-btn dpad-btn--down"
+                  disabled={telemetry.is_emergency_stopped}
+                  onClick={() => adjustAngle("tilt", -10)}
+                  title="Tilt Down (-10°)"
+                >
+                  ⬇️
+                  <span className="dpad-btn__text">DOWN</span>
+                </button>
+                <div />
+              </div>
+            </div>
           </div>
 
           {/* Quick Presets */}
@@ -830,6 +942,7 @@ export default function RobotControlPage() {
                 <span className="preset-btn__angles">Smooth Test</span>
               </button>
             </div>
+
           </div>
         </div>
       </div>

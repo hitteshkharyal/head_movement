@@ -29,8 +29,8 @@
 // --- WIRELESS WI-FI CONFIGURATION (OPTIONAL) ---
 // Set ENABLE_WIFI to true to enable wireless robot control over your home/office Wi-Fi.
 #define ENABLE_WIFI false
-const char* WIFI_SSID     = "YOUR_WIFI_NAME";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID     = "pc_h";
+const char* WIFI_PASSWORD = "12345678";
 const uint16_t TCP_PORT   = 8080;
 
 WiFiServer wifiServer(TCP_PORT);
@@ -53,12 +53,16 @@ float targetTiltAngle  = 90.0;
 int   movementSpeed    = 80;
 bool  isEmergencyStop  = false;
 bool  isMoving         = false;
+bool  swapAxisPins     = false; // When true, GPIO 18 writes Tilt, GPIO 19 writes Pan
+bool  invertPan        = false; // When true, Pan 0°-180° is mirrored
+bool  invertTilt       = false; // When true, Tilt 0°-180° is mirrored
 
 unsigned long lastStepTime = 0;
 unsigned long lastTelemetryTime = 0;
 String serialInputBuffer = "";
 String wifiInputBuffer = "";
 const unsigned int MAX_BUFFER_LEN = 128;
+
 
 // Compute XOR Checksum of payload string
 uint8_t computeChecksum(const String& payload) {
@@ -360,6 +364,29 @@ void parseAndExecuteCommand(String cmd) {
     return;
   }
 
+  // 11. Configuration Commands: SWAP_AXIS, INVERT_PAN, INVERT_TILT
+  if (cmd.startsWith("SWAP_AXIS:") || cmd.startsWith("SWAP_PINS:")) {
+    int val = cmd.substring(cmd.indexOf(':') + 1).toInt();
+    swapAxisPins = (val == 1);
+    Serial.printf("[Config] Swap Axis Pins: %s\n", swapAxisPins ? "ENABLED (GPIO18=Tilt, GPIO19=Pan)" : "DISABLED (GPIO18=Pan, GPIO19=Tilt)");
+    sendResponse(String("<ACK:SWAP_AXIS:") + (swapAxisPins ? "1>" : "0>"));
+    return;
+  }
+
+  if (cmd.startsWith("INVERT_PAN:")) {
+    int val = cmd.substring(11).toInt();
+    invertPan = (val == 1);
+    sendResponse(String("<ACK:INVERT_PAN:") + (invertPan ? "1>" : "0>"));
+    return;
+  }
+
+  if (cmd.startsWith("INVERT_TILT:")) {
+    int val = cmd.substring(12).toInt();
+    invertTilt = (val == 1);
+    sendResponse(String("<ACK:INVERT_TILT:") + (invertTilt ? "1>" : "0>"));
+    return;
+  }
+
   sendResponse("<ERR:UNKNOWN_CMD:" + cmd + ">");
 }
 
@@ -389,8 +416,18 @@ void updateServoMovement() {
       currentTiltAngle = targetTiltAngle;
     }
 
-    servoPan.write((int)round(currentPanAngle));
-    servoTilt.write((int)round(currentTiltAngle));
+    // Apply software inversion if enabled
+    float writePan = invertPan ? (180.0 - currentPanAngle) : currentPanAngle;
+    float writeTilt = invertTilt ? (180.0 - currentTiltAngle) : currentTiltAngle;
+
+    // Apply pin swapping if motor 1 and motor 2 are wired conversely
+    if (swapAxisPins) {
+      servoPan.write((int)round(writeTilt)); // GPIO 18 outputs Tilt
+      servoTilt.write((int)round(writePan)); // GPIO 19 outputs Pan
+    } else {
+      servoPan.write((int)round(writePan));  // GPIO 18 outputs Pan
+      servoTilt.write((int)round(writeTilt)); // GPIO 19 outputs Tilt
+    }
 
     if (abs(currentPanAngle - targetPanAngle) < 0.2 && abs(currentTiltAngle - targetTiltAngle) < 0.2) {
       currentPanAngle = targetPanAngle;
@@ -405,6 +442,7 @@ void updateServoMovement() {
     }
   }
 }
+
 
 void broadcastTelemetry() {
   if (!isMoving) return;
