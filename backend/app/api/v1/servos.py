@@ -3,6 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.schemas.servos import (
     EmergencyStopResponse,
+    HardwareConnectRequest,
+    HardwareConnectResponse,
+    HardwarePortItem,
     ServoConfigItem,
     ServoConfigUpdateRequest,
     ServoMoveRequest,
@@ -182,6 +185,64 @@ async def update_calibration(
     return await service.update_calibration(req.servos)
 
 
+@router.get("/ports", response_model=List[HardwarePortItem])
+async def list_available_ports(hw: HardwareManager = Depends(get_hardware_manager)):
+    """List all available USB / COM serial ports on the host system."""
+    return hw.list_serial_ports()
+
+
+@router.post("/connect", response_model=HardwareConnectResponse)
+async def connect_hardware(
+    req: HardwareConnectRequest,
+    hw: HardwareManager = Depends(get_hardware_manager),
+):
+    """
+    Connect to real ESP32 hardware via serial/COM port or switch back to mock mode.
+    """
+    success = await hw.switch_controller(
+        mode=req.mode,
+        port=req.port or "COM3",
+        baud_rate=req.baud_rate or 115200,
+    )
+    return HardwareConnectResponse(
+        success=success,
+        mode=hw.active_mode,
+        port=hw.active_port if hw.active_mode in ("serial", "esp32", "usb") else None,
+        baud_rate=hw.active_baud if hw.active_mode in ("serial", "esp32", "usb") else None,
+        connected=success,
+        message=f"Switched to {hw.active_mode.upper()} mode. Status: {'Connected' if success else 'Connection failed'}",
+    )
+
+
+@router.post("/disconnect", response_model=HardwareConnectResponse)
+async def disconnect_hardware(hw: HardwareManager = Depends(get_hardware_manager)):
+    """Disconnect active hardware controller."""
+    await hw.controller.disconnect()
+    return HardwareConnectResponse(
+        success=True,
+        mode=hw.active_mode,
+        port=hw.active_port,
+        baud_rate=hw.active_baud,
+        connected=False,
+        message="Hardware disconnected",
+    )
+
+
+@router.post("/ping")
+async def ping_hardware(hw: HardwareManager = Depends(get_hardware_manager)):
+    """Send live Ping packet to ESP32 hardware and return round-trip latency."""
+    controller = hw.controller
+    latency = -1.0
+    if hasattr(controller, "ping"):
+        latency = await controller.ping()
+    return {
+        "success": latency >= 0,
+        "latency_ms": max(0.0, latency),
+        "controller_type": (await controller.get_status()).controller_type,
+        "connected": (await controller.get_status()).connected,
+    }
+
+
 @router.get("/config")
 async def get_servo_config(hw: HardwareManager = Depends(get_hardware_manager)):
     """Get active servo configurations."""
@@ -207,3 +268,4 @@ async def get_servo_config(hw: HardwareManager = Depends(get_hardware_manager)):
             },
         ]
     }
+

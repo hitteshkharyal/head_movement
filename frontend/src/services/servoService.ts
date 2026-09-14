@@ -30,11 +30,58 @@ export interface EmergencyStopResult {
   message: string;
 }
 
+export interface HardwarePortItem {
+  port: string;
+  description: string;
+  manufacturer?: string;
+  hwid?: string;
+}
+
+export interface HardwareConnectResult {
+  success: boolean;
+  mode: string;
+  port?: string | null;
+  baud_rate?: number | null;
+  connected: boolean;
+  message: string;
+}
+
+export interface HardwarePingResult {
+  success: boolean;
+  latency_ms: number;
+  controller_type: string;
+  connected: boolean;
+}
+
 const API_BASE = "/api/v1/servos";
 
 export const servoService = {
   async getStatus(): Promise<ServoStatus> {
     const res = await axios.get<ServoStatus>(`${API_BASE}/status`);
+    return res.data;
+  },
+
+  async listPorts(): Promise<HardwarePortItem[]> {
+    const res = await axios.get<HardwarePortItem[]>(`${API_BASE}/ports`);
+    return res.data;
+  },
+
+  async connectHardware(mode: string, port = "COM3", baud_rate = 115200): Promise<HardwareConnectResult> {
+    const res = await axios.post<HardwareConnectResult>(`${API_BASE}/connect`, {
+      mode,
+      port,
+      baud_rate,
+    });
+    return res.data;
+  },
+
+  async disconnectHardware(): Promise<HardwareConnectResult> {
+    const res = await axios.post<HardwareConnectResult>(`${API_BASE}/disconnect`);
+    return res.data;
+  },
+
+  async pingHardware(): Promise<HardwarePingResult> {
+    const res = await axios.post<HardwarePingResult>(`${API_BASE}/ping`);
     return res.data;
   },
 
@@ -88,3 +135,4 @@ export const servoService = {
     return res.data;
   },
 };
+

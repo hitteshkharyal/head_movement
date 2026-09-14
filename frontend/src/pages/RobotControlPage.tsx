@@ -3,6 +3,7 @@ import {
   servoService,
   ServoStatus,
   ServoConfigItem,
+  HardwarePortItem,
 } from "../services/servoService";
 import { useServoWebSocket } from "../hooks/useServoWebSocket";
 import "./RobotControlPage.css";
@@ -16,11 +17,36 @@ export default function RobotControlPage() {
   const [calibrationSaving, setCalibrationSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
+  // Hardware Connection Bar state
+  const [availablePorts, setAvailablePorts] = useState<HardwarePortItem[]>([]);
+  const [selectedPort, setSelectedPort] = useState<string>("COM3");
+  const [selectedBaud, setSelectedBaud] = useState<number>(115200);
+  const [isScanningPorts, setIsScanningPorts] = useState(false);
+  const [isSwitchingHardware, setIsSwitchingHardware] = useState(false);
+  const [hardwareMsg, setHardwareMsg] = useState<string | null>(null);
+  const [wiringGuideOpen, setWiringGuideOpen] = useState(false);
+
   // Local target sliders (for smooth input handling)
   const [targetPan, setTargetPan] = useState<number>(90);
   const [targetTilt, setTargetTilt] = useState<number>(90);
 
   const { telemetry, wsConnected, sendCommand, setTelemetry } = useServoWebSocket();
+
+  // Load available serial ports
+  const scanSerialPorts = useCallback(async () => {
+    try {
+      setIsScanningPorts(true);
+      const ports = await servoService.listPorts();
+      setAvailablePorts(ports);
+      if (ports.length > 0 && (!selectedPort || selectedPort === "COM3")) {
+        setSelectedPort(ports[0].port);
+      }
+    } catch (e: any) {
+      console.warn("Could not list serial ports:", e);
+    } finally {
+      setIsScanningPorts(false);
+    }
+  }, [selectedPort]);
 
   // Load initial status and calibration
   const refreshStatus = useCallback(async () => {
@@ -53,13 +79,67 @@ export default function RobotControlPage() {
 
   useEffect(() => {
     refreshStatus();
-  }, [refreshStatus]);
+    scanSerialPorts();
+  }, [refreshStatus, scanSerialPorts]);
 
   // Sync sliders with telemetry when not actively dragging
   useEffect(() => {
     setTargetPan(telemetry.pan);
     setTargetTilt(telemetry.tilt);
   }, [telemetry.pan, telemetry.tilt]);
+
+  // Handle Connecting to ESP32 Hardware
+  const handleConnectESP32 = async () => {
+    try {
+      setIsSwitchingHardware(true);
+      setHardwareMsg(`Connecting to ESP32 on ${selectedPort}...`);
+      const res = await servoService.connectHardware("serial", selectedPort, selectedBaud);
+      if (res.connected) {
+        setHardwareMsg(`✅ Connected to ESP32 on ${selectedPort} (${selectedBaud} baud)`);
+      } else {
+        setHardwareMsg(`❌ Failed to connect on ${selectedPort}. Check USB cable & wiring.`);
+      }
+      await refreshStatus();
+      setTimeout(() => setHardwareMsg(null), 5000);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e.message);
+      setHardwareMsg(null);
+    } finally {
+      setIsSwitchingHardware(false);
+    }
+  };
+
+  // Handle Switching to Mock Mode
+  const handleSwitchToMock = async () => {
+    try {
+      setIsSwitchingHardware(true);
+      setHardwareMsg("Switching to Mock Controller simulation...");
+      await servoService.connectHardware("mock");
+      setHardwareMsg("✅ Switched to Mock Controller mode");
+      await refreshStatus();
+      setTimeout(() => setHardwareMsg(null), 4000);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e.message);
+    } finally {
+      setIsSwitchingHardware(false);
+    }
+  };
+
+  // Handle Test Ping
+  const handlePingHardware = async () => {
+    try {
+      const res = await servoService.pingHardware();
+      if (res.success) {
+        setHardwareMsg(`⚡ Ping OK! Round-Trip Latency: ${res.latency_ms.toFixed(1)} ms`);
+        setTelemetry((prev) => ({ ...prev, latency_ms: res.latency_ms, connected: res.connected }));
+      } else {
+        setHardwareMsg("⚠️ Ping timed out or controller not responding");
+      }
+      setTimeout(() => setHardwareMsg(null), 4000);
+    } catch (e: any) {
+      setError("Ping failed: " + e.message);
+    }
+  };
 
   // Handle Pan slider move
   const handlePanChange = async (newPan: number) => {
@@ -179,6 +259,8 @@ export default function RobotControlPage() {
     });
   };
 
+  const isESP32Active = telemetry.controller_type === "esp32";
+
   return (
     <div className="robot-control" data-testid="robot-control-page">
       {/* Header */}
@@ -186,7 +268,7 @@ export default function RobotControlPage() {
         <div>
           <h1 className="robot-control__title">Robot Pan-Tilt Control</h1>
           <p className="robot-control__subtitle">
-            Direct servo positioning, motion smoothing, diagnostics, and calibration
+            Direct servo positioning, motion smoothing, ESP32 serial bridge, and hardware calibration
           </p>
         </div>
         <div className="robot-control__header-actions">
@@ -207,6 +289,145 @@ export default function RobotControlPage() {
           )}
         </div>
       </div>
+
+      {/* Hardware Connection Manager Bar */}
+      <div className="card hardware-bar">
+        <div className="hardware-bar__status">
+          <span className={`status-indicator ${telemetry.connected ? "status-indicator--online" : "status-indicator--offline"}`} />
+          <div className="hardware-bar__info">
+            <span className="hardware-bar__title">
+              Mode: <strong>{isESP32Active ? "ESP32 HARDWARE (SERIAL)" : "MOCK CONTROLLER (VIRTUAL)"}</strong>
+            </span>
+            <span className="hardware-bar__sub">
+              {telemetry.connected
+                ? `🟢 Connected & Ready | Latency: ${telemetry.latency_ms.toFixed(1)}ms`
+                : "🔴 Disconnected / Port Closed"}
+            </span>
+          </div>
+        </div>
+
+        <div className="hardware-bar__controls">
+          <div className="hardware-bar__select-group">
+            <label htmlFor="port-select" className="hardware-bar__label">Port:</label>
+            <select
+              id="port-select"
+              className="hardware-bar__select"
+              value={selectedPort}
+              onChange={(e) => setSelectedPort(e.target.value)}
+              disabled={isSwitchingHardware}
+            >
+              {availablePorts.length === 0 ? (
+                <option value="COM3">COM3 (Default)</option>
+              ) : (
+                availablePorts.map((p) => (
+                  <option key={p.port} value={p.port}>
+                    {p.port} - {p.description.slice(0, 30)}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              className="btn btn--secondary btn--small"
+              onClick={scanSerialPorts}
+              disabled={isScanningPorts || isSwitchingHardware}
+              title="Scan available USB COM ports"
+            >
+              {isScanningPorts ? "..." : "🔄 Scan"}
+            </button>
+          </div>
+
+          <div className="hardware-bar__select-group">
+            <label htmlFor="baud-select" className="hardware-bar__label">Baud:</label>
+            <select
+              id="baud-select"
+              className="hardware-bar__select"
+              value={selectedBaud}
+              onChange={(e) => setSelectedBaud(parseInt(e.target.value, 10))}
+              disabled={isSwitchingHardware}
+            >
+              <option value="115200">115200</option>
+              <option value="57600">57600</option>
+              <option value="9600">9600</option>
+            </select>
+          </div>
+
+          {isESP32Active ? (
+            <>
+              <button
+                className="btn btn--secondary btn--small"
+                onClick={handlePingHardware}
+                disabled={isSwitchingHardware || !telemetry.connected}
+                title="Test ESP32 latency"
+              >
+                ⚡ Ping
+              </button>
+              <button
+                className="btn btn--secondary btn--small"
+                onClick={handleSwitchToMock}
+                disabled={isSwitchingHardware}
+                title="Switch back to Mock Controller"
+              >
+                💻 Switch to Mock
+              </button>
+            </>
+          ) : (
+            <button
+              className="btn btn--primary btn--small"
+              onClick={handleConnectESP32}
+              disabled={isSwitchingHardware}
+              title="Connect to physical ESP32"
+            >
+              {isSwitchingHardware ? "Connecting..." : "🔌 Connect ESP32"}
+            </button>
+          )}
+
+          <button
+            className="btn btn--secondary btn--small"
+            onClick={() => setWiringGuideOpen(!wiringGuideOpen)}
+            title="View ESP32 Servo Pinout & Wiring Diagram"
+          >
+            📋 Wiring Guide
+          </button>
+        </div>
+      </div>
+
+      {/* Hardware Action Notification */}
+      {hardwareMsg && (
+        <div className="info-banner" role="status">
+          <span>{hardwareMsg}</span>
+        </div>
+      )}
+
+      {/* Wiring Guide Drawer */}
+      {wiringGuideOpen && (
+        <div className="card wiring-guide-card">
+          <div className="card__header">
+            <h3 className="card__title">🔌 ESP32 to MG90S / MG995 / MG996R Wiring Pinout</h3>
+            <button className="btn btn--small" onClick={() => setWiringGuideOpen(false)}>✕ Close</button>
+          </div>
+          <div className="wiring-guide-grid">
+            <div className="wiring-item">
+              <strong>PAN (Yaw - Horizontal)</strong>
+              <p>ESP32 <code>GPIO 18</code> ➔ Servo PWM Signal (Orange/Yellow)</p>
+            </div>
+            <div className="wiring-item">
+              <strong>TILT (Pitch - Vertical)</strong>
+              <p>ESP32 <code>GPIO 19</code> ➔ Servo PWM Signal (Orange/Yellow)</p>
+            </div>
+            <div className="wiring-item">
+              <strong>COMMON GROUND</strong>
+              <p>ESP32 <code>GND</code> ➔ Servo Power GND & External 5V GND (Black/Brown)</p>
+            </div>
+            <div className="wiring-item">
+              <strong>EXTERNAL 5V POWER</strong>
+              <p>External 5V 2A+ Power Supply ➔ Servo VCC (Red)</p>
+            </div>
+          </div>
+          <p className="wiring-note">
+            ⚠️ <em>Important: Do NOT power servos directly from ESP32 3.3V or 5V pin under load; use an external 5V 2A+ power supply with GND connected to ESP32 GND.</em>
+          </p>
+        </div>
+      )}
 
       {/* Emergency Stop Active Banner */}
       {telemetry.is_emergency_stopped && (
@@ -231,6 +452,7 @@ export default function RobotControlPage() {
           </button>
         </div>
       )}
+
 
       {/* Main Grid */}
       <div className="robot-control__grid">

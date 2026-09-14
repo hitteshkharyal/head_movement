@@ -28,6 +28,7 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=0.1)
                 except asyncio.TimeoutError:
+                    controller = hw.controller
                     status = await controller.get_status()
                     is_estop = getattr(controller, "is_emergency_stopped", False)
                     latency = 0.0
@@ -56,6 +57,7 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
                 try:
                     command = json.loads(data)
                     cmd_type = command.get("type")
+                    controller = hw.controller
                     if cmd_type == "move":
                         pan = command.get("pan")
                         tilt = command.get("tilt")
@@ -79,6 +81,7 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
             pass
         except Exception as exc:
             logger.debug("WebSocket receiver closed: %s", exc)
+
 
     sender_task = asyncio.create_task(sender())
     receiver_task = asyncio.create_task(receiver())

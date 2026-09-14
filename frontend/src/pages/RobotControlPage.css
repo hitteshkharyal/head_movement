@@ -480,3 +480,148 @@
     box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
   }
 }
+
+/* Hardware Connection Bar */
+.hardware-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  flex-wrap: wrap;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--color-bg-border);
+}
+
+.hardware-bar__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.status-indicator {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-indicator--online {
+  background: var(--color-status-success);
+  box-shadow: 0 0 10px var(--color-status-success);
+}
+
+.status-indicator--offline {
+  background: var(--color-status-error);
+  box-shadow: 0 0 8px var(--color-status-error);
+}
+
+.hardware-bar__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hardware-bar__title {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.hardware-bar__title strong {
+  color: var(--color-accent-cyan);
+}
+
+.hardware-bar__sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.hardware-bar__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.hardware-bar__select-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hardware-bar__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.hardware-bar__select {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-bg-border);
+  color: var(--color-text-primary);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  outline: none;
+  min-width: 140px;
+}
+
+.hardware-bar__select:focus {
+  border-color: var(--color-accent-blue);
+}
+
+/* Info Banner */
+.info-banner {
+  padding: var(--space-3) var(--space-4);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid var(--color-accent-blue);
+  border-radius: var(--radius-md);
+  color: #93c5fd;
+  font-size: var(--font-size-sm);
+}
+
+/* Wiring Guide Card */
+.wiring-guide-card {
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--color-accent-cyan);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-radius: var(--radius-lg);
+}
+
+.wiring-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.wiring-item {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid var(--color-bg-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: var(--font-size-xs);
+}
+
+.wiring-item strong {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-accent-cyan);
+}
+
+.wiring-item code {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #fca5a5;
+  font-family: monospace;
+}
+
+.wiring-note {
+  font-size: var(--font-size-xs);
+  color: #fcd34d;
+  margin-top: var(--space-2);
+}
+

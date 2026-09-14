@@ -51,12 +51,41 @@ This folder contains the Arduino / C++ firmware for the **AI Humanoid Presentati
 
 ---
 
-## 3. Connecting to the Web Dashboard
+## 3. Testing Communication via CLI
 
-In `backend/.env`, set:
-```env
-ESP32_CONNECTION_TYPE=serial
-ESP32_SERIAL_PORT=COM3     # Replace COM3 with your actual ESP32 port (e.g. COM4, COM5, /dev/ttyUSB0)
-ESP32_BAUD_RATE=115200
+You can verify and test your ESP32 hardware and servos directly using the Python verification tool:
+
+```bash
+# Activate virtual environment
+cd backend
+.venv\Scripts\activate
+
+# Run interactive ESP32 connection test
+python scripts/test_esp32_connection.py --port COM3 --baud 115200
 ```
-Then start the backend server.
+*(Replace `COM3` with your actual port. If omitted, the script auto-detects connected USB ports).*
+
+---
+
+## 4. Connecting via Web Dashboard (Live GUI)
+
+1. Open the dashboard at `http://localhost:5173/robot-control`.
+2. In the top **Hardware Connection Toolbar**:
+   - Click **🔄 Scan** to auto-populate detected COM ports.
+   - Select your ESP32 COM port from the dropdown (e.g. `COM3` or `COM4`).
+   - Click **🔌 Connect ESP32**.
+   - Click **⚡ Ping** to test round-trip latency.
+3. Move the Pan/Tilt sliders, click preset buttons, or trigger head tracking!
+
+---
+
+## 5. Troubleshooting & Common Pitfalls
+
+| Issue | Root Cause | Solution |
+| :--- | :--- | :--- |
+| **"Access Denied" or Port Busy Error** | Another application has the COM port open (e.g., Arduino IDE Serial Monitor or Cura). | Close the Arduino IDE Serial Monitor or other serial terminals. Only one program can access the COM port at a time. |
+| **ESP32 Reboots Constantly on Motion** | Insufficient servo power / brownout reset. | Use an external 5V 2A+ power supply. Ensure external GND is connected to ESP32 GND. |
+| **Servos Twitch or Don't Move** | Missing common ground between power supply and ESP32, or signal pin mismatch. | Connect external power supply GND wire directly to ESP32 `GND` pin. Verify Pan is on `GPIO 18` and Tilt is on `GPIO 19`. |
+| **COM Port Not Detected** | Missing CH340 or CP2102 USB-to-UART driver on Windows. | Download and install CH340 or CP210x driver for your ESP32 board. Check Device Manager -> Ports (COM & LPT). |
+| **Timeout on Connect** | ESP32 DTR line triggers automatic bootloader reset when serial port opens. | The backend controller automatically waits 1.2s for ESP32 boot. Ensure baud rate is set to `115200`. |
+

@@ -46,3 +46,26 @@ class EmergencyStopResponse(BaseModel):
     status: str
     emergency_stopped: bool
     message: str
+
+
+class HardwarePortItem(BaseModel):
+    port: str
+    description: str
+    manufacturer: Optional[str] = "Unknown"
+    hwid: Optional[str] = ""
+
+
+class HardwareConnectRequest(BaseModel):
+    mode: str = Field(..., description="'mock' or 'serial'")
+    port: Optional[str] = Field("COM3", description="Serial port name, e.g. COM3 or /dev/ttyUSB0")
+    baud_rate: Optional[int] = Field(115200, description="Serial baud rate, defaults to 115200")
+
+
+class HardwareConnectResponse(BaseModel):
+    success: bool
+    mode: str
+    port: Optional[str] = None
+    baud_rate: Optional[int] = None
+    connected: bool
+    message: str
+

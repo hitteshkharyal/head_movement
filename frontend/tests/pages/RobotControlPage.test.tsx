@@ -54,7 +54,20 @@ describe("RobotControlPage Component", () => {
           ],
         });
       }
+      if (url.includes("/ports")) {
+        return Promise.resolve({
+          data: [
+            {
+              port: "COM3",
+              description: "USB Serial Port (COM3)",
+              manufacturer: "Silicon Labs",
+              hwid: "USB\\VID_10C4&PID_EA60",
+            },
+          ],
+        });
+      }
       return Promise.reject(new Error("not found"));
+
     });
 
     mockedAxios.post.mockResolvedValue({

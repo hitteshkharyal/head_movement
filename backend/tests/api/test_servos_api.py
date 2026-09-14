@@ -93,3 +93,33 @@ async def test_calibration_get_and_put():
         assert put_resp.status_code == 200
         updated = put_resp.json()
         assert updated[0]["trim_offset"] == 5.0
+
+
+@pytest.mark.asyncio
+async def test_ports_and_connection_endpoints():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # GET ports
+        resp = await client.get("/api/v1/servos/ports")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+        # Connect Mock mode
+        resp_conn = await client.post(
+            "/api/v1/servos/connect",
+            json={"mode": "mock", "port": "COM3", "baud_rate": 115200},
+        )
+        assert resp_conn.status_code == 200
+        data = resp_conn.json()
+        assert data["success"] is True
+        assert data["mode"] == "mock"
+
+        # Ping
+        resp_ping = await client.post("/api/v1/servos/ping")
+        assert resp_ping.status_code == 200
+        assert "latency_ms" in resp_ping.json()
+
+        # Disconnect
+        resp_disc = await client.post("/api/v1/servos/disconnect")
+        assert resp_disc.status_code == 200
+        assert resp_disc.json()["connected"] is False
+
