@@ -134,6 +134,36 @@ async def center_servos(hw: HardwareManager = Depends(get_hardware_manager)):
     return await get_servo_status(hw)
 
 
+@router.post("/center/pan", response_model=ServoStatusResponse)
+async def center_pan_only(hw: HardwareManager = Depends(get_hardware_manager)):
+    """Reset ONLY the Pan servo to its calibrated center position (90°)."""
+    controller = hw.controller
+    if hasattr(controller, "is_emergency_stopped") and controller.is_emergency_stopped:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="Emergency Stop active",
+        )
+    if not (await controller.get_status()).connected:
+        await controller.connect()
+    await controller.move_pan(hw.pan_config.center_angle)
+    return await get_servo_status(hw)
+
+
+@router.post("/center/tilt", response_model=ServoStatusResponse)
+async def center_tilt_only(hw: HardwareManager = Depends(get_hardware_manager)):
+    """Reset ONLY the Tilt servo to its calibrated center position (90° - level gaze)."""
+    controller = hw.controller
+    if hasattr(controller, "is_emergency_stopped") and controller.is_emergency_stopped:
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="Emergency Stop active",
+        )
+    if not (await controller.get_status()).connected:
+        await controller.connect()
+    await controller.move_tilt(hw.tilt_config.center_angle)
+    return await get_servo_status(hw)
+
+
 @router.post("/stop", response_model=ServoStatusResponse)
 async def stop_servos(hw: HardwareManager = Depends(get_hardware_manager)):
     """Smoothly stop ongoing servo movement."""

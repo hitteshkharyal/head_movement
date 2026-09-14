@@ -121,6 +121,16 @@ export const servoService = {
     return res.data;
   },
 
+  async centerPan(): Promise<ServoStatus> {
+    const res = await axios.post<ServoStatus>(`${API_BASE}/center/pan`);
+    return res.data;
+  },
+
+  async centerTilt(): Promise<ServoStatus> {
+    const res = await axios.post<ServoStatus>(`${API_BASE}/center/tilt`);
+    return res.data;
+  },
+
   async stop(): Promise<ServoStatus> {
     const res = await axios.post<ServoStatus>(`${API_BASE}/stop`);
     return res.data;

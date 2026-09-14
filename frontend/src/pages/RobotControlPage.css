@@ -76,41 +76,39 @@
   font-size: var(--font-size-sm);
 }
 
-/* Main Grid */
-.robot-control__grid {
+/* ========================================================================= */
+/* TOP GRID: 3D PREVIEW (LEFT) + D-PAD JOYSTICK CONTROLLER (RIGHT)           */
+/* ========================================================================= */
+.robot-control__top-grid {
   display: grid;
-  grid-template-columns: 1fr 1.2fr;
+  grid-template-columns: 1fr 1.3fr;
   gap: var(--space-6);
+  align-items: stretch;
 }
 
 @media (max-width: 1024px) {
-  .robot-control__grid {
+  .robot-control__top-grid {
     grid-template-columns: 1fr;
   }
-}
-
-.robot-control__col {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
 }
 
 /* 3D Head Avatar Gauge */
 .gauge-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  justify-content: space-between;
 }
 
 .gauge-stage {
   width: 100%;
-  height: 220px;
+  height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08) 0%, transparent 70%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.12) 0%, transparent 70%);
   border-radius: var(--radius-lg);
   perspective: 800px;
+  margin: var(--space-2) 0;
 }
 
 .head-avatar {
@@ -168,8 +166,8 @@
   width: 100%;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
+  gap: var(--space-3);
+  margin-top: var(--space-3);
 }
 
 .angle-box {
@@ -180,12 +178,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  text-align: center;
 }
 
 .angle-box__label {
-  font-size: var(--font-size-xs);
+  font-size: 0.7rem;
   color: var(--color-text-secondary);
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.05em;
 }
 
@@ -194,60 +193,252 @@
   font-weight: 700;
   color: var(--color-accent-cyan);
   font-family: var(--font-mono, monospace);
-  margin: var(--space-1) 0;
+  margin: 2px 0;
 }
 
 .angle-box__sub {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  font-size: 0.75rem;
+  color: #94a3b8;
 }
 
-/* Telemetry Diagnostics HUD */
-.hud-metrics {
+/* ========================================================================= */
+/* D-PAD CARD & CONTROLS                                                     */
+/* ========================================================================= */
+.dpad-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.dpad-wrapper {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2) 0;
+}
+
+.dpad-grid-3x3 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
+  grid-template-columns: repeat(3, 100px);
+  grid-template-rows: repeat(3, 75px);
+  gap: var(--space-2);
 }
 
-.hud-metric {
+@media (max-width: 640px) {
+  .dpad-grid-3x3 {
+    grid-template-columns: repeat(3, 80px);
+    grid-template-rows: repeat(3, 65px);
+  }
+}
+
+.dpad-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-bg-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.dpad-btn:hover:not(:disabled) {
+  border-color: var(--color-accent-blue);
+  background: rgba(59, 130, 246, 0.18);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+}
+
+.dpad-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.dpad-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dpad-btn__text {
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+
+.dpad-btn--cardinal {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.dpad-btn--cardinal .dpad-btn__text {
+  color: var(--color-accent-cyan);
+}
+
+.dpad-btn--diag {
+  background: rgba(30, 41, 59, 0.5);
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.dpad-btn--diag .dpad-btn__text {
+  color: #94a3b8;
+}
+
+.dpad-btn--center {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(168, 85, 247, 0.2));
+  border: 1px solid var(--color-accent-blue);
+}
+
+.dpad-btn--center .dpad-btn__text {
+  color: #ffffff;
+}
+
+/* Individual Centering Bar */
+.individual-centers {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-bg-border);
   border-radius: var(--radius-md);
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
-.hud-metric__label {
+.individual-centers__title {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-}
-
-.hud-metric__value {
-  font-size: var(--font-size-sm);
   font-weight: 600;
-  color: var(--color-text-primary);
 }
 
-.hud-metric__value--highlight {
-  color: var(--color-accent-blue);
+.individual-centers__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  .individual-centers__row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.center-action-btn {
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  padding: var(--space-2);
+}
+
+/* Quick Presets */
+.presets-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.presets-container__title {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-2);
+}
+
+@media (max-width: 1024px) {
+  .preset-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .preset-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.preset-btn {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-bg-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preset-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--color-accent-blue);
+  transform: translateY(-2px);
+}
+
+.preset-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.preset-btn__icon {
+  font-size: 1.2rem;
+}
+
+.preset-btn__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.preset-btn__angles {
+  font-size: 0.65rem;
+  color: var(--color-text-tertiary);
   font-family: var(--font-mono, monospace);
 }
 
-/* Precision Controls */
+.preset-btn--special {
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
+.preset-btn--special:hover:not(:disabled) {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: var(--color-accent-purple);
+}
+
+/* ========================================================================= */
+/* BOTTOM GRID: PRECISION SLIDERS & DIAGNOSTICS HUD                          */
+/* ========================================================================= */
+.robot-control__bottom-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: var(--space-6);
+}
+
+@media (max-width: 1024px) {
+  .robot-control__bottom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .controls-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
 .axis-control {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-bg-border);
   border-radius: var(--radius-md);
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -296,17 +487,32 @@
   color: var(--color-text-tertiary);
 }
 
+.speed-and-inversion {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-bg-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .speed-and-inversion {
+    grid-template-columns: 1fr;
+  }
+}
+
 .speed-control {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: 0 var(--space-2);
+  gap: var(--space-1);
 }
 
 .speed-control__header {
   display: flex;
   justify-content: space-between;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
 }
 
@@ -315,173 +521,66 @@
   accent-color: var(--color-accent-purple);
 }
 
-/* Presets */
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+.inversion-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.inversion-controls__label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.inversion-controls__buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Telemetry Diagnostics HUD */
+.telemetry-card {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-3);
-  margin-top: var(--space-3);
 }
 
-@media (max-width: 640px) {
-  .preset-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+.hud-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
 }
 
-.preset-btn {
+.hud-metric {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-bg-border);
   border-radius: var(--radius-md);
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: var(--space-1);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: all 0.2s ease;
 }
 
-.preset-btn:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: var(--color-accent-blue);
-  transform: translateY(-2px);
-}
-
-.preset-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.preset-btn__icon {
-  font-size: 1.5rem;
-}
-
-.preset-btn__label {
+.hud-metric__label {
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
-.preset-btn__angles {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
+.hud-metric__value {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.hud-metric__value--highlight {
+  color: var(--color-accent-blue);
   font-family: var(--font-mono, monospace);
 }
 
-.preset-btn--special {
-  border-color: rgba(168, 85, 247, 0.4);
-}
-
-.preset-btn--special:hover:not(:disabled) {
-  background: rgba(168, 85, 247, 0.15);
-  border-color: var(--color-accent-purple);
-}
-
-/* Calibration Drawer */
-.calibration-section {
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  background: var(--color-bg-card);
-}
-
-.calibration-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.success-msg {
-  color: #34d399;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
-.calibration-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-6);
-  margin-top: var(--space-4);
-}
-
-@media (max-width: 768px) {
-  .calibration-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.calibration-box {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-bg-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.calibration-box__title {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  color: var(--color-accent-blue);
-}
-
-.cal-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.cal-field label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-.cal-field input[type="number"] {
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-bg-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-primary);
-  padding: var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-.cal-field-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
-}
-
-.cal-checkbox label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-/* Animations */
-@keyframes eye-glow {
-  from {
-    box-shadow: 0 0 6px var(--color-accent-cyan);
-  }
-  to {
-    box-shadow: 0 0 16px var(--color-accent-cyan);
-  }
-}
-
-@keyframes pulse-border {
-  0%, 100% {
-    border-color: var(--color-status-error);
-    box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
-  }
-  50% {
-    border-color: #f87171;
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
-  }
-}
-
-/* Hardware Connection Bar */
+/* ========================================================================= */
+/* HARDWARE BAR & WIRING                                                     */
+/* ========================================================================= */
 .hardware-bar {
   display: flex;
   align-items: center;
@@ -587,8 +686,6 @@
   border-color: var(--color-accent-blue);
 }
 
-/* Info Banner */
-
 .info-banner {
   padding: var(--space-3) var(--space-4);
   background: rgba(59, 130, 246, 0.15);
@@ -598,7 +695,6 @@
   font-size: var(--font-size-sm);
 }
 
-/* Wiring Guide Card */
 .wiring-guide-card {
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid var(--color-accent-cyan);
@@ -643,98 +739,105 @@
   margin-top: var(--space-2);
 }
 
-/* Axis Inversion Controls */
-.inversion-controls {
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-bg-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+/* Calibration Drawer */
+.calibration-section {
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--color-bg-card);
 }
 
-.inversion-controls__label {
+.calibration-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.success-msg {
+  color: #34d399;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.calibration-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 768px) {
+  .calibration-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.calibration-box {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-bg-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.calibration-box__title {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-accent-blue);
+}
+
+.cal-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cal-field label {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  font-weight: 500;
 }
 
-.inversion-controls__buttons {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-/* Directional D-Pad */
-.dpad-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: var(--space-5);
-}
-
-.dpad-wrapper {
-  margin-top: var(--space-4);
-  display: flex;
-  justify-content: center;
-}
-
-.dpad-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 80px);
-  grid-template-rows: repeat(3, 80px);
-  gap: var(--space-2);
-}
-
-.dpad-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+.cal-field input[type="number"] {
   background: var(--color-bg-primary);
   border: 1px solid var(--color-bg-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   color: var(--color-text-primary);
-  font-size: 1.25rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  user-select: none;
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
 }
 
-.dpad-btn:hover:not(:disabled) {
-  border-color: var(--color-accent-blue);
-  background: rgba(59, 130, 246, 0.15);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+.cal-field-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
 }
 
-.dpad-btn:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.dpad-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.dpad-btn__text {
-  font-size: 0.65rem;
-  letter-spacing: 0.05em;
+.cal-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+  cursor: pointer;
 }
 
-.dpad-btn--center {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.4);
+/* Animations */
+@keyframes eye-glow {
+  from {
+    box-shadow: 0 0 6px var(--color-accent-cyan);
+  }
+  to {
+    box-shadow: 0 0 16px var(--color-accent-cyan);
+  }
 }
 
-.dpad-btn--center:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.25);
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: var(--color-status-error);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    border-color: #f87171;
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+  }
 }
-
-

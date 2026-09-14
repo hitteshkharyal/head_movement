@@ -29,7 +29,7 @@ export default function RobotControlPage() {
   const [hardwareMsg, setHardwareMsg] = useState<string | null>(null);
   const [wiringGuideOpen, setWiringGuideOpen] = useState(false);
 
-  // Local target sliders (for smooth input handling)
+  // Local target angles (for responsive UI updates)
   const [targetPan, setTargetPan] = useState<number>(90);
   const [targetTilt, setTargetTilt] = useState<number>(90);
 
@@ -85,13 +85,13 @@ export default function RobotControlPage() {
     scanSerialPorts();
   }, [refreshStatus, scanSerialPorts]);
 
-  // Sync sliders with telemetry when not actively dragging
+  // Sync targets with telemetry when updated
   useEffect(() => {
     setTargetPan(telemetry.pan);
     setTargetTilt(telemetry.tilt);
   }, [telemetry.pan, telemetry.tilt]);
 
-  // Handle Connecting to ESP32 Hardware via Serial
+  // Connect to ESP32 Hardware via Serial
   const handleConnectESP32 = async () => {
     try {
       setIsSwitchingHardware(true);
@@ -112,7 +112,7 @@ export default function RobotControlPage() {
     }
   };
 
-  // Handle Connecting to ESP32 Hardware via WiFi
+  // Connect to ESP32 Hardware via WiFi
   const handleConnectWiFi = async () => {
     try {
       setIsSwitchingHardware(true);
@@ -121,7 +121,7 @@ export default function RobotControlPage() {
       if (res.connected) {
         setHardwareMsg(`✅ Connected to wireless ESP32 at ${wifiIp}:${wifiPort}`);
       } else {
-        setHardwareMsg(`❌ Could not reach ESP32 at ${wifiIp}:${wifiPort}. Check Wi-Fi network & IP address.`);
+        setHardwareMsg(`❌ Could not reach ESP32 at ${wifiIp}:${wifiPort}. Check Wi-Fi network & IP.`);
       }
       await refreshStatus();
       setTimeout(() => setHardwareMsg(null), 5000);
@@ -133,7 +133,7 @@ export default function RobotControlPage() {
     }
   };
 
-  // Handle Switching to Mock Mode
+  // Switch to Mock Mode
   const handleSwitchToMock = async () => {
     try {
       setIsSwitchingHardware(true);
@@ -149,7 +149,7 @@ export default function RobotControlPage() {
     }
   };
 
-  // Handle Test Ping
+  // Test Ping
   const handlePingHardware = async () => {
     try {
       const res = await servoService.pingHardware();
@@ -165,43 +165,115 @@ export default function RobotControlPage() {
     }
   };
 
+  // --- INDEPENDENT SINGLE-AXIS COMMANDS ---
 
-  // Handle Pan slider move
+  // Move Pan ONLY (leaves Tilt completely untouched)
   const handlePanChange = async (newPan: number) => {
-    setTargetPan(newPan);
-    if (!sendCommand({ type: "move", pan: newPan, tilt: targetTilt, speed })) {
+    const clamped = Math.max(0, Math.min(180, newPan));
+    setTargetPan(clamped);
+    if (!sendCommand({ type: "pan", pan: clamped, speed })) {
       try {
-        await servoService.move(newPan, targetTilt, speed);
+        await servoService.movePan(clamped, speed);
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message);
       }
     }
   };
 
-  // Handle Tilt slider move
+  // Move Tilt ONLY (leaves Pan completely untouched)
   const handleTiltChange = async (newTilt: number) => {
-    setTargetTilt(newTilt);
-    if (!sendCommand({ type: "move", pan: targetPan, tilt: newTilt, speed })) {
+    const clamped = Math.max(30, Math.min(150, newTilt));
+    setTargetTilt(clamped);
+    if (!sendCommand({ type: "tilt", tilt: clamped, speed })) {
       try {
-        await servoService.move(targetPan, newTilt, speed);
+        await servoService.moveTilt(clamped, speed);
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message);
       }
     }
   };
 
-  // Step adjustments (moves strictly ONE axis without altering the other)
-  const adjustAngle = (axis: "pan" | "tilt", delta: number) => {
-    if (axis === "pan") {
-      const clamped = Math.max(0, Math.min(180, targetPan + delta));
-      handlePanChange(clamped);
-    } else {
-      const clamped = Math.max(30, Math.min(150, targetTilt + delta));
-      handleTiltChange(clamped);
+  // Step Pan (Left/Right)
+  const stepPan = (delta: number) => {
+    const nextPan = Math.max(0, Math.min(180, targetPan + delta));
+    if (nextPan !== targetPan) {
+      handlePanChange(nextPan);
     }
   };
 
-  // Quick Invert & Pin Swap Toggles
+  // Step Tilt (Up/Down)
+  const stepTilt = (delta: number) => {
+    const nextTilt = Math.max(30, Math.min(150, targetTilt + delta));
+    if (nextTilt !== targetTilt) {
+      handleTiltChange(nextTilt);
+    }
+  };
+
+  // --- SIMULTANEOUS MULTI-AXIS COMMANDS ---
+
+  // Move Both Pan and Tilt simultaneously (for diagonals & presets)
+  const moveBoth = async (pan: number, tilt: number) => {
+    const clampedPan = Math.max(0, Math.min(180, pan));
+    const clampedTilt = Math.max(30, Math.min(150, tilt));
+    setTargetPan(clampedPan);
+    setTargetTilt(clampedTilt);
+    if (!sendCommand({ type: "move", pan: clampedPan, tilt: clampedTilt, speed })) {
+      try {
+        await servoService.move(clampedPan, clampedTilt, speed);
+      } catch (e: any) {
+        setError(e?.response?.data?.detail || e.message);
+      }
+    }
+  };
+
+  // Step Diagonal (Both motors move at the same time)
+  const stepDiagonal = (panDelta: number, tiltDelta: number) => {
+    const nextPan = Math.max(0, Math.min(180, targetPan + panDelta));
+    const nextTilt = Math.max(30, Math.min(150, targetTilt + tiltDelta));
+    moveBoth(nextPan, nextTilt);
+  };
+
+  // --- CENTERING COMMANDS ---
+
+  // Center Pan Only (90°)
+  const handleCenterPan = async () => {
+    setTargetPan(90);
+    if (!sendCommand({ type: "center_pan" })) {
+      try {
+        await servoService.centerPan();
+      } catch (e: any) {
+        setError(e?.response?.data?.detail || e.message);
+      }
+    }
+  };
+
+  // Center Tilt Only (90° - Normal Level Gaze)
+  const handleCenterTilt = async () => {
+    setTargetTilt(90);
+    if (!sendCommand({ type: "center_tilt" })) {
+      try {
+        await servoService.centerTilt();
+      } catch (e: any) {
+        setError(e?.response?.data?.detail || e.message);
+      }
+    }
+  };
+
+  // Center Both Motors (90°, 90°)
+  const handleCenterBoth = async () => {
+    setTargetPan(90);
+    setTargetTilt(90);
+    if (!sendCommand({ type: "center" })) {
+      try {
+        await servoService.center();
+      } catch (e: any) {
+        setError(e?.response?.data?.detail || e.message);
+      }
+    }
+  };
+
+  // --- AXIS INVERSION CONTROLS ---
+
   const handleTogglePanInvert = async () => {
     if (calibration.length < 2) return;
     const clone = [...calibration];
@@ -228,30 +300,7 @@ export default function RobotControlPage() {
     }
   };
 
-  // Preset commands
-  const applyPreset = async (pan: number, tilt: number) => {
-    setTargetPan(pan);
-    setTargetTilt(tilt);
-    if (!sendCommand({ type: "move", pan, tilt, speed })) {
-      try {
-        await servoService.move(pan, tilt, speed);
-      } catch (e: any) {
-        setError(e?.response?.data?.detail || e.message);
-      }
-    }
-  };
-
-
-  const handleCenter = async () => {
-    if (!sendCommand({ type: "center" })) {
-      try {
-        await servoService.center();
-      } catch (e: any) {
-        setError(e?.response?.data?.detail || e.message);
-      }
-    }
-  };
-
+  // Emergency Stop & Resume
   const handleEmergencyStop = async () => {
     try {
       if (!sendCommand({ type: "emergency_stop" })) {
@@ -275,6 +324,7 @@ export default function RobotControlPage() {
     }
   };
 
+  // Test Sweep Sequence
   const handleSweepTest = async () => {
     const sweepPositions = [
       { pan: 30, tilt: 90 },
@@ -284,7 +334,7 @@ export default function RobotControlPage() {
       { pan: 90, tilt: 90 },
     ];
     for (const pos of sweepPositions) {
-      await applyPreset(pos.pan, pos.tilt);
+      await moveBoth(pos.pan, pos.tilt);
       await new Promise((res) => setTimeout(res, 400));
     }
   };
@@ -321,7 +371,7 @@ export default function RobotControlPage() {
         <div>
           <h1 className="robot-control__title">Robot Pan-Tilt Control</h1>
           <p className="robot-control__subtitle">
-            Direct servo positioning, motion smoothing, ESP32 serial bridge, and hardware calibration
+            Independent motor steppers, simultaneous 8-axis joystick, 3D live orientation preview, and ESP32 hardware bridge
           </p>
         </div>
         <div className="robot-control__header-actions">
@@ -343,13 +393,13 @@ export default function RobotControlPage() {
         </div>
       </div>
 
-      {/* Hardware Connection Manager Bar */}
+      {/* Hardware Connection Bar */}
       <div className="card hardware-bar">
         <div className="hardware-bar__status">
           <span className={`status-indicator ${telemetry.connected ? "status-indicator--online" : "status-indicator--offline"}`} />
           <div className="hardware-bar__info">
             <span className="hardware-bar__title">
-              Mode: <strong>{isESP32Active ? "ESP32 HARDWARE (SERIAL)" : "MOCK CONTROLLER (VIRTUAL)"}</strong>
+              Mode: <strong>{isESP32Active ? "ESP32 HARDWARE (SERIAL / WIFI)" : "MOCK CONTROLLER (VIRTUAL)"}</strong>
             </span>
             <span className="hardware-bar__sub">
               {telemetry.connected
@@ -524,8 +574,7 @@ export default function RobotControlPage() {
         </div>
       </div>
 
-
-      {/* Hardware Action Notification */}
+      {/* Notification Banner */}
       {hardwareMsg && (
         <div className="info-banner" role="status">
           <span>{hardwareMsg}</span>
@@ -541,24 +590,24 @@ export default function RobotControlPage() {
           </div>
           <div className="wiring-guide-grid">
             <div className="wiring-item">
-              <strong>PAN (Yaw - Horizontal)</strong>
+              <strong>PAN (Motor 1 - Yaw / Horizontal)</strong>
               <p>ESP32 <code>GPIO 18</code> ➔ Servo PWM Signal (Orange/Yellow)</p>
             </div>
             <div className="wiring-item">
-              <strong>TILT (Pitch - Vertical)</strong>
+              <strong>TILT (Motor 2 - Pitch / Vertical)</strong>
               <p>ESP32 <code>GPIO 19</code> ➔ Servo PWM Signal (Orange/Yellow)</p>
             </div>
             <div className="wiring-item">
               <strong>COMMON GROUND</strong>
-              <p>ESP32 <code>GND</code> ➔ Servo Power GND & External 5V GND (Black/Brown)</p>
+              <p>ESP32 <code>GND</code> ➔ Servo Power GND (Black/Brown)</p>
             </div>
             <div className="wiring-item">
-              <strong>EXTERNAL 5V POWER</strong>
-              <p>External 5V 2A+ Power Supply ➔ Servo VCC (Red)</p>
+              <strong>SERVO POWER (5V)</strong>
+              <p>ESP32 <code>VIN / 5V</code> (or External 5V 2A Power) ➔ Servo VCC (Red)</p>
             </div>
           </div>
           <p className="wiring-note">
-            ⚠️ <em>Important: Do NOT power servos directly from ESP32 3.3V or 5V pin under load; use an external 5V 2A+ power supply with GND connected to ESP32 GND.</em>
+            💡 <em>Note: MG90S test micro-servos can run directly off the ESP32 VIN pin when USB connected. When upgrading to MG995/MG996R, use an external 5V 2A+ power supply with common ground.</em>
           </p>
         </div>
       )}
@@ -587,203 +636,415 @@ export default function RobotControlPage() {
         </div>
       )}
 
-
-      {/* Main Grid */}
-      <div className="robot-control__grid">
-        {/* Left Column: Visual Head Gauge & Live Telemetry */}
-        <div className="robot-control__col">
-          {/* Head 3D Orientation Gauge */}
-          <div className="card gauge-card">
-            <div className="card__header">
+      {/* ========================================================================= */}
+      {/* TOP SECTION: 3D PREVIEW (LEFT) + COMPREHENSIVE D-PAD CONTROLLER (RIGHT)  */}
+      {/* ========================================================================= */}
+      <div className="robot-control__top-grid">
+        {/* Left Card: 3D Head Avatar Gauge & Orientation Readouts */}
+        <div className="card gauge-card">
+          <div className="card__header">
+            <div>
               <h2 className="card__title">Live Head Orientation</h2>
-              <span className={`status-pill ${telemetry.is_moving ? "status-pill--active" : ""}`}>
-                {telemetry.is_moving ? "MOVING" : "IDLE"}
-              </span>
+              <span className="card__subtitle">Real-time 3D yaw and pitch visualization</span>
             </div>
+            <span className={`status-pill ${telemetry.is_moving ? "status-pill--active" : ""}`}>
+              {telemetry.is_moving ? "MOVING" : "IDLE"}
+            </span>
+          </div>
 
-            <div className="gauge-stage">
-              <div
-                className="head-avatar"
-                style={{
-                  transform: `perspective(600px) rotateY(${(90 - telemetry.pan) * 0.8}deg) rotateX(${(telemetry.tilt - 90) * 0.8}deg)`,
-                }}
-              >
-                <div className="head-avatar__face">
-                  <div className="head-avatar__eyes">
-                    <div className="eye eye--left" />
-                    <div className="eye eye--right" />
-                  </div>
-                  <div className="head-avatar__mouth" />
-                  <div className="head-avatar__crosshair" />
+          <div className="gauge-stage">
+            <div
+              className="head-avatar"
+              style={{
+                transform: `perspective(600px) rotateY(${(90 - telemetry.pan) * 0.8}deg) rotateX(${(telemetry.tilt - 90) * 0.8}deg)`,
+              }}
+            >
+              <div className="head-avatar__face">
+                <div className="head-avatar__eyes">
+                  <div className="eye eye--left" />
+                  <div className="eye eye--right" />
                 </div>
-              </div>
-            </div>
-
-            <div className="angle-readouts">
-              <div className="angle-box">
-                <span className="angle-box__label">PAN (YAW)</span>
-                <span className="angle-box__value">{telemetry.pan.toFixed(1)}°</span>
-                <span className="angle-box__sub">Rel: {(telemetry.pan - 90).toFixed(1)}°</span>
-              </div>
-              <div className="angle-box">
-                <span className="angle-box__label">TILT (PITCH)</span>
-                <span className="angle-box__value">{telemetry.tilt.toFixed(1)}°</span>
-                <span className="angle-box__sub">Rel: {(telemetry.tilt - 90).toFixed(1)}°</span>
+                <div className="head-avatar__mouth" />
+                <div className="head-avatar__crosshair" />
               </div>
             </div>
           </div>
 
-          {/* Telemetry Diagnostics HUD */}
-          <div className="card telemetry-card">
-            <h3 className="card__title">Hardware Diagnostics HUD</h3>
-            <div className="hud-metrics">
-              <div className="hud-metric">
-                <span className="hud-metric__label">Hardware State</span>
-                <span className="hud-metric__value">
-                  {telemetry.connected ? "🟢 ONLINE" : "🔴 OFFLINE"}
-                </span>
-              </div>
-              <div className="hud-metric">
-                <span className="hud-metric__label">Controller Type</span>
-                <span className="hud-metric__value hud-metric__value--highlight">
-                  {telemetry.controller_type.toUpperCase()}
-                </span>
-              </div>
-              <div className="hud-metric">
-                <span className="hud-metric__label">Round-Trip Latency</span>
-                <span className="hud-metric__value">
-                  {telemetry.latency_ms.toFixed(1)} ms
-                </span>
-              </div>
-              <div className="hud-metric">
-                <span className="hud-metric__label">Telemetry Stream</span>
-                <span className="hud-metric__value">
-                  {wsConnected ? "⚡ WebSocket (Live)" : "🔄 REST Polling"}
-                </span>
-              </div>
+          {/* Real-time Angle Readout Badges */}
+          <div className="angle-readouts">
+            <div className="angle-box">
+              <span className="angle-box__label">MOTOR 1 : PAN (HORIZONTAL)</span>
+              <span className="angle-box__value">{telemetry.pan.toFixed(1)}°</span>
+              <span className="angle-box__sub">
+                {telemetry.pan < 88 ? "Turning Right" : telemetry.pan > 92 ? "Turning Left" : "Centered (Forward)"}
+              </span>
+            </div>
+            <div className="angle-box">
+              <span className="angle-box__label">MOTOR 2 : TILT (VERTICAL)</span>
+              <span className="angle-box__value">{telemetry.tilt.toFixed(1)}°</span>
+              <span className="angle-box__sub">
+                {telemetry.tilt < 88 ? "Chin Down" : telemetry.tilt > 92 ? "Head Up" : "Normal Level Gaze"}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Precision Sliders, Steppers & Presets */}
-        <div className="robot-control__col">
-          {/* Sliders Card */}
-          <div className="card controls-card">
-            <h2 className="card__title">Precision Servo Controls</h2>
-
-            {/* Pan Axis */}
-            <div className="axis-control">
-              <div className="axis-control__header">
-                <span className="axis-control__name">Pan Servo (Horizontal Axis)</span>
-                <span className="axis-control__badge">{targetPan.toFixed(1)}°</span>
-              </div>
-              <div className="slider-row">
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("pan", -5)}
-                >
-                  -5°
-                </button>
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("pan", -1)}
-                >
-                  -1°
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="180"
-                  step="0.5"
-                  value={targetPan}
-                  disabled={telemetry.is_emergency_stopped}
-                  onChange={(e) => handlePanChange(parseFloat(e.target.value))}
-                  className="servo-slider"
-                  aria-label="Pan angle slider"
-                />
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("pan", 1)}
-                >
-                  +1°
-                </button>
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("pan", 5)}
-                >
-                  +5°
-                </button>
-              </div>
-              <div className="slider-labels">
-                <span>0° (Far Right)</span>
-                <span>90° (Center)</span>
-                <span>180° (Far Left)</span>
-              </div>
+        {/* Right Card: Independent & Simultaneous D-Pad Controller */}
+        <div className="card dpad-card">
+          <div className="card__header">
+            <div>
+              <h2 className="card__title">Directional D-Pad & Multi-Axis Stepper</h2>
+              <span className="card__subtitle">
+                Independent single-axis steppers + simultaneous diagonal motion
+              </span>
             </div>
+          </div>
 
-            {/* Tilt Axis */}
-            <div className="axis-control">
-              <div className="axis-control__header">
-                <span className="axis-control__name">Tilt Servo (Vertical Axis)</span>
-                <span className="axis-control__badge">{targetTilt.toFixed(1)}°</span>
-              </div>
-              <div className="slider-row">
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("tilt", -5)}
-                >
-                  -5°
-                </button>
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("tilt", -1)}
-                >
-                  -1°
-                </button>
-                <input
-                  type="range"
-                  min="30"
-                  max="150"
-                  step="0.5"
-                  value={targetTilt}
-                  disabled={telemetry.is_emergency_stopped}
-                  onChange={(e) => handleTiltChange(parseFloat(e.target.value))}
-                  className="servo-slider"
-                  aria-label="Tilt angle slider"
-                />
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("tilt", 1)}
-                >
-                  +1°
-                </button>
-                <button
-                  className="btn btn--icon"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("tilt", 5)}
-                >
-                  +5°
-                </button>
-              </div>
-              <div className="slider-labels">
-                <span>30° (Down)</span>
-                <span>90° (Level)</span>
-                <span>150° (Up)</span>
-              </div>
+          {/* 3x3 Joystick Grid (Cardinal + Diagonals + Center) */}
+          <div className="dpad-wrapper">
+            <div className="dpad-grid-3x3">
+              {/* Row 1 */}
+              <button
+                className="dpad-btn dpad-btn--diag"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepDiagonal(10, 10)}
+                title="Up + Left (Simultaneous)"
+                type="button"
+              >
+                ↖️
+                <span className="dpad-btn__text">UP-LEFT</span>
+              </button>
+
+              <button
+                className="dpad-btn dpad-btn--cardinal dpad-btn--up"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepTilt(10)}
+                title="Head Up (+10° Tilt only - Motor 2)"
+                type="button"
+              >
+                ⬆️
+                <span className="dpad-btn__text">UP (HEAD UP)</span>
+              </button>
+
+              <button
+                className="dpad-btn dpad-btn--diag"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepDiagonal(-10, 10)}
+                title="Up + Right (Simultaneous)"
+                type="button"
+              >
+                ↗️
+                <span className="dpad-btn__text">UP-RIGHT</span>
+              </button>
+
+              {/* Row 2 */}
+              <button
+                className="dpad-btn dpad-btn--cardinal dpad-btn--left"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepPan(10)}
+                title="Pan Left (+10° Pan only - Motor 1)"
+                type="button"
+              >
+                ⬅️
+                <span className="dpad-btn__text">LEFT</span>
+              </button>
+
+              <button
+                className="dpad-btn dpad-btn--center"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={handleCenterBoth}
+                title="Center Both Motors (90°, 90°)"
+                type="button"
+              >
+                🎯
+                <span className="dpad-btn__text">CENTER BOTH</span>
+              </button>
+
+              <button
+                className="dpad-btn dpad-btn--cardinal dpad-btn--right"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepPan(-10)}
+                title="Pan Right (-10° Pan only - Motor 1)"
+                type="button"
+              >
+                ➡️
+                <span className="dpad-btn__text">RIGHT</span>
+              </button>
+
+              {/* Row 3 */}
+              <button
+                className="dpad-btn dpad-btn--diag"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepDiagonal(10, -10)}
+                title="Down + Left (Simultaneous)"
+                type="button"
+              >
+                ↙️
+                <span className="dpad-btn__text">DOWN-LEFT</span>
+              </button>
+
+              <button
+                className="dpad-btn dpad-btn--cardinal dpad-btn--down"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepTilt(-10)}
+                title="Chin Down (-10° Tilt only - Motor 2)"
+                type="button"
+              >
+                ⬇️
+                <span className="dpad-btn__text">DOWN (CHIN)</span>
+              </button>
+
+              <button
+                className="dpad-btn dpad-btn--diag"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepDiagonal(-10, -10)}
+                title="Down + Right (Simultaneous)"
+                type="button"
+              >
+                ↘️
+                <span className="dpad-btn__text">DOWN-RIGHT</span>
+              </button>
             </div>
+          </div>
 
-            {/* Speed Control */}
+          {/* Dedicated Individual Centering Buttons */}
+          <div className="individual-centers">
+            <span className="individual-centers__title">Independent Motor Centering:</span>
+            <div className="individual-centers__row">
+              <button
+                className="btn btn--secondary btn--small center-action-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={handleCenterPan}
+                title="Reset Motor 1 (Pan Horizontal) to 90°"
+                type="button"
+              >
+                🎯 Center Pan (Motor 1)
+              </button>
+              <button
+                className="btn btn--secondary btn--small center-action-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={handleCenterTilt}
+                title="Reset Motor 2 (Tilt Vertical) to 90° Normal Level"
+                type="button"
+              >
+                🎯 Center Tilt (Motor 2)
+              </button>
+              <button
+                className="btn btn--primary btn--small center-action-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={handleCenterBoth}
+                title="Reset both motors to 90°, 90°"
+                type="button"
+              >
+                🎯 Center Both (90°, 90°)
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Pose Presets */}
+          <div className="presets-container">
+            <h2 className="card__title presets-container__title">Quick Pose Presets</h2>
+            <div className="preset-grid">
+              <button
+                className="preset-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={handleCenterBoth}
+                type="button"
+              >
+                <span className="preset-btn__icon">🎯</span>
+                <span className="preset-btn__label">Center (Home)</span>
+                <span className="preset-btn__angles">90°, 90°</span>
+              </button>
+              <button
+                className="preset-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => moveBoth(150, 90)}
+                type="button"
+              >
+                <span className="preset-btn__icon">⬅️</span>
+                <span className="preset-btn__label">Look Left</span>
+                <span className="preset-btn__angles">150°, 90°</span>
+              </button>
+              <button
+                className="preset-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => moveBoth(30, 90)}
+                type="button"
+              >
+                <span className="preset-btn__icon">➡️</span>
+                <span className="preset-btn__label">Look Right</span>
+                <span className="preset-btn__angles">30°, 90°</span>
+              </button>
+              <button
+                className="preset-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => moveBoth(90, 130)}
+                type="button"
+              >
+                <span className="preset-btn__icon">⬆️</span>
+                <span className="preset-btn__label">Look Up</span>
+                <span className="preset-btn__angles">90°, 130°</span>
+              </button>
+              <button
+                className="preset-btn"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => moveBoth(90, 50)}
+                type="button"
+              >
+                <span className="preset-btn__icon">⬇️</span>
+                <span className="preset-btn__label">Look Down</span>
+                <span className="preset-btn__angles">90°, 50°</span>
+              </button>
+              <button
+                className="preset-btn preset-btn--special"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={handleSweepTest}
+                type="button"
+              >
+                <span className="preset-btn__icon">🔄</span>
+                <span className="preset-btn__label">Sweep Sequence</span>
+                <span className="preset-btn__angles">Smooth Test</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* BOTTOM SECTION: PRECISION SLIDERS, INVERSIONS & HARDWARE DIAGNOSTICS HUD */}
+      {/* ========================================================================= */}
+      <div className="robot-control__bottom-grid">
+        {/* Sliders & Speed Card */}
+        <div className="card controls-card">
+          <div className="card__header">
+            <div>
+              <h2 className="card__title">Precision Servo Controls</h2>
+              <span className="card__subtitle">Fine-grained angle adjustments with ±1° & ±5° stepping</span>
+            </div>
+          </div>
+
+          {/* Pan Axis Slider */}
+          <div className="axis-control">
+            <div className="axis-control__header">
+              <span className="axis-control__name">Motor 1: Pan (Horizontal Axis)</span>
+              <span className="axis-control__badge">{targetPan.toFixed(1)}°</span>
+            </div>
+            <div className="slider-row">
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepPan(-5)}
+                type="button"
+              >
+                -5°
+              </button>
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepPan(-1)}
+                type="button"
+              >
+                -1°
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="180"
+                step="0.5"
+                value={targetPan}
+                disabled={telemetry.is_emergency_stopped}
+                onChange={(e) => handlePanChange(parseFloat(e.target.value))}
+                className="servo-slider"
+                aria-label="Pan angle slider"
+              />
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepPan(1)}
+                type="button"
+              >
+                +1°
+              </button>
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepPan(5)}
+                type="button"
+              >
+                +5°
+              </button>
+            </div>
+            <div className="slider-labels">
+              <span>0° (Right)</span>
+              <span>90° (Center)</span>
+              <span>180° (Left)</span>
+            </div>
+          </div>
+
+          {/* Tilt Axis Slider */}
+          <div className="axis-control">
+            <div className="axis-control__header">
+              <span className="axis-control__name">Motor 2: Tilt (Vertical Axis - Chin/Up)</span>
+              <span className="axis-control__badge">{targetTilt.toFixed(1)}°</span>
+            </div>
+            <div className="slider-row">
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepTilt(-5)}
+                type="button"
+              >
+                -5°
+              </button>
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepTilt(-1)}
+                type="button"
+              >
+                -1°
+              </button>
+              <input
+                type="range"
+                min="30"
+                max="150"
+                step="0.5"
+                value={targetTilt}
+                disabled={telemetry.is_emergency_stopped}
+                onChange={(e) => handleTiltChange(parseFloat(e.target.value))}
+                className="servo-slider"
+                aria-label="Tilt angle slider"
+              />
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepTilt(1)}
+                type="button"
+              >
+                +1°
+              </button>
+              <button
+                className="btn btn--icon"
+                disabled={telemetry.is_emergency_stopped}
+                onClick={() => stepTilt(5)}
+                type="button"
+              >
+                +5°
+              </button>
+            </div>
+            <div className="slider-labels">
+              <span>30° (Down - Chin)</span>
+              <span>90° (Normal Gaze)</span>
+              <span>150° (Up - Head)</span>
+            </div>
+          </div>
+
+          {/* Speed Control & Inversion Row */}
+          <div className="speed-and-inversion">
             <div className="speed-control">
               <div className="speed-control__header">
-                <span>Movement Speed</span>
-                <span>{speed}%</span>
+                <span>Movement Speed:</span>
+                <strong>{speed}%</strong>
               </div>
               <input
                 type="range"
@@ -800,7 +1061,7 @@ export default function RobotControlPage() {
 
             {/* Quick Axis Inversion Toggles */}
             <div className="inversion-controls">
-              <span className="inversion-controls__label">Hardware Direction Adjustments:</span>
+              <span className="inversion-controls__label">Hardware Direction Adjustment:</span>
               <div className="inversion-controls__buttons">
                 <button
                   className={`btn btn--small ${calibration.find((c) => c.servo_name === "pan")?.invert ? "btn--primary" : "btn--secondary"}`}
@@ -821,128 +1082,42 @@ export default function RobotControlPage() {
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Directional D-Pad (Virtual Joystick) */}
-          <div className="card dpad-card">
-            <h2 className="card__title">Directional D-Pad (Single-Axis Stepper)</h2>
-            <p className="card__subtitle">Move strictly one motor without affecting the other</p>
-            <div className="dpad-wrapper">
-              <div className="dpad-grid">
-                <div />
-                <button
-                  className="dpad-btn dpad-btn--up"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("tilt", 10)}
-                  title="Tilt Up (+10°)"
-                >
-                  ⬆️
-                  <span className="dpad-btn__text">UP</span>
-                </button>
-                <div />
-
-                <button
-                  className="dpad-btn dpad-btn--left"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("pan", 10)}
-                  title="Pan Left (+10°)"
-                >
-                  ⬅️
-                  <span className="dpad-btn__text">LEFT</span>
-                </button>
-                <button
-                  className="dpad-btn dpad-btn--center"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={handleCenter}
-                  title="Center Both Motors (90°, 90°)"
-                >
-                  🎯
-                  <span className="dpad-btn__text">CENTER</span>
-                </button>
-                <button
-                  className="dpad-btn dpad-btn--right"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("pan", -10)}
-                  title="Pan Right (-10°)"
-                >
-                  ➡️
-                  <span className="dpad-btn__text">RIGHT</span>
-                </button>
-
-                <div />
-                <button
-                  className="dpad-btn dpad-btn--down"
-                  disabled={telemetry.is_emergency_stopped}
-                  onClick={() => adjustAngle("tilt", -10)}
-                  title="Tilt Down (-10°)"
-                >
-                  ⬇️
-                  <span className="dpad-btn__text">DOWN</span>
-                </button>
-                <div />
-              </div>
+        {/* Telemetry Diagnostics HUD */}
+        <div className="card telemetry-card">
+          <div className="card__header">
+            <div>
+              <h3 className="card__title">Hardware Diagnostics HUD</h3>
+              <span className="card__subtitle">Connection metrics & bus latency</span>
             </div>
           </div>
 
-          {/* Quick Presets */}
-          <div className="card presets-card">
-            <h2 className="card__title">Quick Pose Presets</h2>
-            <div className="preset-grid">
-              <button
-                className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={handleCenter}
-              >
-                <span className="preset-btn__icon">🎯</span>
-                <span className="preset-btn__label">Center (Home)</span>
-                <span className="preset-btn__angles">90°, 90°</span>
-              </button>
-              <button
-                className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => applyPreset(150, 90)}
-              >
-                <span className="preset-btn__icon">⬅️</span>
-                <span className="preset-btn__label">Look Left</span>
-                <span className="preset-btn__angles">150°, 90°</span>
-              </button>
-              <button
-                className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => applyPreset(30, 90)}
-              >
-                <span className="preset-btn__icon">➡️</span>
-                <span className="preset-btn__label">Look Right</span>
-                <span className="preset-btn__angles">30°, 90°</span>
-              </button>
-              <button
-                className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => applyPreset(90, 130)}
-              >
-                <span className="preset-btn__icon">⬆️</span>
-                <span className="preset-btn__label">Look Up</span>
-                <span className="preset-btn__angles">90°, 130°</span>
-              </button>
-              <button
-                className="preset-btn"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={() => applyPreset(90, 50)}
-              >
-                <span className="preset-btn__icon">⬇️</span>
-                <span className="preset-btn__label">Look Down</span>
-                <span className="preset-btn__angles">90°, 50°</span>
-              </button>
-              <button
-                className="preset-btn preset-btn--special"
-                disabled={telemetry.is_emergency_stopped}
-                onClick={handleSweepTest}
-              >
-                <span className="preset-btn__icon">🔄</span>
-                <span className="preset-btn__label">Sweep Sequence</span>
-                <span className="preset-btn__angles">Smooth Test</span>
-              </button>
+          <div className="hud-metrics">
+            <div className="hud-metric">
+              <span className="hud-metric__label">Hardware State</span>
+              <span className="hud-metric__value">
+                {telemetry.connected ? "🟢 ONLINE" : "🔴 OFFLINE"}
+              </span>
             </div>
-
+            <div className="hud-metric">
+              <span className="hud-metric__label">Controller Driver</span>
+              <span className="hud-metric__value hud-metric__value--highlight">
+                {telemetry.controller_type.toUpperCase()}
+              </span>
+            </div>
+            <div className="hud-metric">
+              <span className="hud-metric__label">Round-Trip Latency</span>
+              <span className="hud-metric__value">
+                {telemetry.latency_ms.toFixed(1)} ms
+              </span>
+            </div>
+            <div className="hud-metric">
+              <span className="hud-metric__label">Telemetry Transport</span>
+              <span className="hud-metric__value">
+                {wsConnected ? "⚡ WebSocket (Live)" : "🔄 REST Polling"}
+              </span>
+            </div>
           </div>
         </div>
       </div>

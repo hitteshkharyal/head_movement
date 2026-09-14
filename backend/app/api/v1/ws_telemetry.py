@@ -61,15 +61,31 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
                     if cmd_type == "move":
                         pan = command.get("pan")
                         tilt = command.get("tilt")
-                        speed = command.get("speed", 100)
+                        speed = command.get("speed", 80)
                         if pan is not None and tilt is not None and hasattr(controller, "move_pan_tilt"):
                             await controller.move_pan_tilt(float(pan), float(tilt), speed=int(speed))
                         elif pan is not None:
                             await controller.move_pan(float(pan), speed=int(speed))
                         elif tilt is not None:
                             await controller.move_tilt(float(tilt), speed=int(speed))
+                    elif cmd_type == "pan":
+                        pan = command.get("pan")
+                        speed = command.get("speed", 80)
+                        if pan is not None:
+                            await controller.move_pan(float(pan), speed=int(speed))
+                    elif cmd_type == "tilt":
+                        tilt = command.get("tilt")
+                        speed = command.get("speed", 80)
+                        if tilt is not None:
+                            await controller.move_tilt(float(tilt), speed=int(speed))
                     elif cmd_type == "center":
                         await controller.center()
+                    elif cmd_type == "center_pan":
+                        if hasattr(controller, "move_pan"):
+                            await controller.move_pan(hw.pan_config.center_angle)
+                    elif cmd_type == "center_tilt":
+                        if hasattr(controller, "move_tilt"):
+                            await controller.move_tilt(hw.tilt_config.center_angle)
                     elif cmd_type == "emergency_stop":
                         await controller.emergency_stop()
                     elif cmd_type == "resume":
