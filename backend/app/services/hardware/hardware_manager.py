@@ -48,19 +48,44 @@ class HardwareManager:
         self._active_mode: str = settings.esp32_connection_type.lower()
         self._active_port: str = settings.esp32_serial_port
         self._active_baud: int = settings.esp32_baud_rate
-        self._controller: HardwareController = self._create_controller(self._active_mode, self._active_port, self._active_baud)
+        self._active_host: str = settings.esp32_wifi_host
+        self._active_wifi_port: int = settings.esp32_wifi_port
+        self._controller: HardwareController = self._create_controller(
+            self._active_mode,
+            self._active_port,
+            self._active_baud,
+            self._active_host,
+            self._active_wifi_port,
+        )
         self._telemetry_subscribers: Set[asyncio.Queue] = set()
 
-    def _create_controller(self, mode: str, port: str, baud_rate: int) -> HardwareController:
+    def _create_controller(
+        self,
+        mode: str,
+        port: str,
+        baud_rate: int,
+        host: str = "192.168.1.100",
+        wifi_port: int = 8080,
+    ) -> HardwareController:
         """Instantiate controller based on requested mode."""
         if mode in ("serial", "esp32", "usb"):
-            logger.info("Instantiating ESP32Controller on port %s (%d baud)", port, baud_rate)
+            logger.info("Instantiating ESP32Controller in serial mode on port %s (%d baud)", port, baud_rate)
             return ESP32Controller(
                 pan_config=self._pan_config,
                 tilt_config=self._tilt_config,
                 transport="serial",
                 port=port,
                 baud_rate=baud_rate,
+                on_position_update=self._on_hardware_position_update,
+            )
+        elif mode in ("wifi", "tcp", "network"):
+            logger.info("Instantiating ESP32Controller in WiFi mode to %s:%d", host, wifi_port)
+            return ESP32Controller(
+                pan_config=self._pan_config,
+                tilt_config=self._tilt_config,
+                transport="wifi",
+                host=host,
+                wifi_port=wifi_port,
                 on_position_update=self._on_hardware_position_update,
             )
         else:
@@ -104,6 +129,14 @@ class HardwareManager:
         return self._active_baud
 
     @property
+    def active_host(self) -> str:
+        return self._active_host
+
+    @property
+    def active_wifi_port(self) -> int:
+        return self._active_wifi_port
+
+    @property
     def pan_config(self) -> ServoConfig:
         return self._pan_config
 
@@ -111,15 +144,31 @@ class HardwareManager:
     def tilt_config(self) -> ServoConfig:
         return self._tilt_config
 
-    async def switch_controller(self, mode: str, port: Optional[str] = None, baud_rate: Optional[int] = None) -> bool:
+    async def switch_controller(
+        self,
+        mode: str,
+        port: Optional[str] = None,
+        baud_rate: Optional[int] = None,
+        host: Optional[str] = None,
+        wifi_port: Optional[int] = None,
+    ) -> bool:
         """
-        Dynamically switch between Mock and real ESP32 hardware without restarting server.
+        Dynamically switch between Mock, USB Serial, and Wireless Wi-Fi ESP32 hardware without restarting server.
         """
         target_mode = mode.lower()
         target_port = port or self._active_port
         target_baud = baud_rate or self._active_baud
+        target_host = host or self._active_host
+        target_wifi_port = wifi_port or self._active_wifi_port
 
-        logger.info("Switching hardware controller to mode=%s, port=%s, baud=%d", target_mode, target_port, target_baud)
+        logger.info(
+            "Switching hardware controller to mode=%s, port=%s, baud=%d, host=%s:%d",
+            target_mode,
+            target_port,
+            target_baud,
+            target_host,
+            target_wifi_port,
+        )
 
         # 1. Cleanly disconnect previous controller
         try:
@@ -131,11 +180,20 @@ class HardwareManager:
         self._active_mode = target_mode
         self._active_port = target_port
         self._active_baud = target_baud
-        self._controller = self._create_controller(target_mode, target_port, target_baud)
+        self._active_host = target_host
+        self._active_wifi_port = target_wifi_port
+        self._controller = self._create_controller(
+            target_mode,
+            target_port,
+            target_baud,
+            target_host,
+            target_wifi_port,
+        )
 
         connected = await self._controller.connect()
         logger.info("Switched to %s controller. Connected: %s", target_mode, connected)
         return connected
+
 
     def list_serial_ports(self) -> List[Dict[str, str]]:
         """Scan and return all available serial COM ports on the system."""

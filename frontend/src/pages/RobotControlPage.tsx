@@ -18,9 +18,12 @@ export default function RobotControlPage() {
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   // Hardware Connection Bar state
+  const [connTab, setConnTab] = useState<"serial" | "wifi">("serial");
   const [availablePorts, setAvailablePorts] = useState<HardwarePortItem[]>([]);
   const [selectedPort, setSelectedPort] = useState<string>("COM3");
   const [selectedBaud, setSelectedBaud] = useState<number>(115200);
+  const [wifiIp, setWifiIp] = useState<string>("192.168.1.100");
+  const [wifiPort, setWifiPort] = useState<number>(8080);
   const [isScanningPorts, setIsScanningPorts] = useState(false);
   const [isSwitchingHardware, setIsSwitchingHardware] = useState(false);
   const [hardwareMsg, setHardwareMsg] = useState<string | null>(null);
@@ -88,16 +91,37 @@ export default function RobotControlPage() {
     setTargetTilt(telemetry.tilt);
   }, [telemetry.pan, telemetry.tilt]);
 
-  // Handle Connecting to ESP32 Hardware
+  // Handle Connecting to ESP32 Hardware via Serial
   const handleConnectESP32 = async () => {
     try {
       setIsSwitchingHardware(true);
-      setHardwareMsg(`Connecting to ESP32 on ${selectedPort}...`);
+      setHardwareMsg(`Connecting to ESP32 on USB Serial ${selectedPort}...`);
       const res = await servoService.connectHardware("serial", selectedPort, selectedBaud);
       if (res.connected) {
         setHardwareMsg(`✅ Connected to ESP32 on ${selectedPort} (${selectedBaud} baud)`);
       } else {
         setHardwareMsg(`❌ Failed to connect on ${selectedPort}. Check USB cable & wiring.`);
+      }
+      await refreshStatus();
+      setTimeout(() => setHardwareMsg(null), 5000);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e.message);
+      setHardwareMsg(null);
+    } finally {
+      setIsSwitchingHardware(false);
+    }
+  };
+
+  // Handle Connecting to ESP32 Hardware via WiFi
+  const handleConnectWiFi = async () => {
+    try {
+      setIsSwitchingHardware(true);
+      setHardwareMsg(`Connecting to wireless ESP32 at ${wifiIp}:${wifiPort}...`);
+      const res = await servoService.connectHardware("wifi", undefined, undefined, wifiIp, wifiPort);
+      if (res.connected) {
+        setHardwareMsg(`✅ Connected to wireless ESP32 at ${wifiIp}:${wifiPort}`);
+      } else {
+        setHardwareMsg(`❌ Could not reach ESP32 at ${wifiIp}:${wifiPort}. Check Wi-Fi network & IP address.`);
       }
       await refreshStatus();
       setTimeout(() => setHardwareMsg(null), 5000);
@@ -140,6 +164,7 @@ export default function RobotControlPage() {
       setError("Ping failed: " + e.message);
     }
   };
+
 
   // Handle Pan slider move
   const handlePanChange = async (newPan: number) => {
@@ -307,78 +332,158 @@ export default function RobotControlPage() {
         </div>
 
         <div className="hardware-bar__controls">
-          <div className="hardware-bar__select-group">
-            <label htmlFor="port-select" className="hardware-bar__label">Port:</label>
-            <select
-              id="port-select"
-              className="hardware-bar__select"
-              value={selectedPort}
-              onChange={(e) => setSelectedPort(e.target.value)}
-              disabled={isSwitchingHardware}
-            >
-              {availablePorts.length === 0 ? (
-                <option value="COM3">COM3 (Default)</option>
-              ) : (
-                availablePorts.map((p) => (
-                  <option key={p.port} value={p.port}>
-                    {p.port} - {p.description.slice(0, 30)}
-                  </option>
-                ))
-              )}
-            </select>
+          {/* Tab Switcher: USB Serial vs Wireless Wi-Fi */}
+          <div className="hardware-bar__tabs">
             <button
-              className="btn btn--secondary btn--small"
-              onClick={scanSerialPorts}
-              disabled={isScanningPorts || isSwitchingHardware}
-              title="Scan available USB COM ports"
+              className={`btn btn--small ${connTab === "serial" ? "btn--primary" : "btn--secondary"}`}
+              onClick={() => setConnTab("serial")}
+              type="button"
             >
-              {isScanningPorts ? "..." : "🔄 Scan"}
+              🔌 USB Serial
+            </button>
+            <button
+              className={`btn btn--small ${connTab === "wifi" ? "btn--primary" : "btn--secondary"}`}
+              onClick={() => setConnTab("wifi")}
+              type="button"
+            >
+              📶 Wireless Wi-Fi
             </button>
           </div>
 
-          <div className="hardware-bar__select-group">
-            <label htmlFor="baud-select" className="hardware-bar__label">Baud:</label>
-            <select
-              id="baud-select"
-              className="hardware-bar__select"
-              value={selectedBaud}
-              onChange={(e) => setSelectedBaud(parseInt(e.target.value, 10))}
-              disabled={isSwitchingHardware}
-            >
-              <option value="115200">115200</option>
-              <option value="57600">57600</option>
-              <option value="9600">9600</option>
-            </select>
-          </div>
-
-          {isESP32Active ? (
+          {connTab === "serial" ? (
             <>
-              <button
-                className="btn btn--secondary btn--small"
-                onClick={handlePingHardware}
-                disabled={isSwitchingHardware || !telemetry.connected}
-                title="Test ESP32 latency"
-              >
-                ⚡ Ping
-              </button>
-              <button
-                className="btn btn--secondary btn--small"
-                onClick={handleSwitchToMock}
-                disabled={isSwitchingHardware}
-                title="Switch back to Mock Controller"
-              >
-                💻 Switch to Mock
-              </button>
+              <div className="hardware-bar__select-group">
+                <label htmlFor="port-select" className="hardware-bar__label">Port:</label>
+                <select
+                  id="port-select"
+                  className="hardware-bar__select"
+                  value={selectedPort}
+                  onChange={(e) => setSelectedPort(e.target.value)}
+                  disabled={isSwitchingHardware}
+                >
+                  {availablePorts.length === 0 ? (
+                    <option value="COM3">COM3 (Default)</option>
+                  ) : (
+                    availablePorts.map((p) => (
+                      <option key={p.port} value={p.port}>
+                        {p.port} - {p.description.slice(0, 30)}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <button
+                  className="btn btn--secondary btn--small"
+                  onClick={scanSerialPorts}
+                  disabled={isScanningPorts || isSwitchingHardware}
+                  title="Scan available USB COM ports"
+                >
+                  {isScanningPorts ? "..." : "🔄 Scan"}
+                </button>
+              </div>
+
+              <div className="hardware-bar__select-group">
+                <label htmlFor="baud-select" className="hardware-bar__label">Baud:</label>
+                <select
+                  id="baud-select"
+                  className="hardware-bar__select"
+                  value={selectedBaud}
+                  onChange={(e) => setSelectedBaud(parseInt(e.target.value, 10))}
+                  disabled={isSwitchingHardware}
+                >
+                  <option value="115200">115200</option>
+                  <option value="57600">57600</option>
+                  <option value="9600">9600</option>
+                </select>
+              </div>
+
+              {isESP32Active ? (
+                <>
+                  <button
+                    className="btn btn--secondary btn--small"
+                    onClick={handlePingHardware}
+                    disabled={isSwitchingHardware || !telemetry.connected}
+                    title="Test ESP32 latency"
+                  >
+                    ⚡ Ping
+                  </button>
+                  <button
+                    className="btn btn--secondary btn--small"
+                    onClick={handleSwitchToMock}
+                    disabled={isSwitchingHardware}
+                    title="Switch back to Mock Controller"
+                  >
+                    💻 Switch to Mock
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn btn--primary btn--small"
+                  onClick={handleConnectESP32}
+                  disabled={isSwitchingHardware}
+                  title="Connect via USB Serial"
+                >
+                  {isSwitchingHardware ? "Connecting..." : "🔌 Connect Serial"}
+                </button>
+              )}
             </>
           ) : (
-            <button
-              className="btn btn--primary btn--small"
-              onClick={handleConnectESP32}
-              disabled={isSwitchingHardware}
-              title="Connect to physical ESP32"
-            >
-              {isSwitchingHardware ? "Connecting..." : "🔌 Connect ESP32"}
-            </button>
+            <>
+              <div className="hardware-bar__select-group">
+                <label htmlFor="wifi-ip" className="hardware-bar__label">ESP32 IP:</label>
+                <input
+                  id="wifi-ip"
+                  type="text"
+                  className="hardware-bar__input"
+                  value={wifiIp}
+                  onChange={(e) => setWifiIp(e.target.value)}
+                  placeholder="192.168.1.100"
+                  disabled={isSwitchingHardware}
+                />
+              </div>
+
+              <div className="hardware-bar__select-group">
+                <label htmlFor="wifi-port" className="hardware-bar__label">Port:</label>
+                <input
+                  id="wifi-port"
+                  type="number"
+                  className="hardware-bar__input hardware-bar__input--short"
+                  value={wifiPort}
+                  onChange={(e) => setWifiPort(parseInt(e.target.value, 10))}
+                  placeholder="8080"
+                  disabled={isSwitchingHardware}
+                />
+              </div>
+
+              {isESP32Active ? (
+                <>
+                  <button
+                    className="btn btn--secondary btn--small"
+                    onClick={handlePingHardware}
+                    disabled={isSwitchingHardware || !telemetry.connected}
+                    title="Test ESP32 latency"
+                  >
+                    ⚡ Ping
+                  </button>
+                  <button
+                    className="btn btn--secondary btn--small"
+                    onClick={handleSwitchToMock}
+                    disabled={isSwitchingHardware}
+                    title="Switch back to Mock Controller"
+                  >
+                    💻 Switch to Mock
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn btn--primary btn--small"
+                  onClick={handleConnectWiFi}
+                  disabled={isSwitchingHardware}
+                  title="Connect wirelessly over Wi-Fi"
+                >
+                  {isSwitchingHardware ? "Connecting..." : "📶 Connect Wi-Fi"}
+                </button>
+              )}
+            </>
           )}
 
           <button
@@ -390,6 +495,7 @@ export default function RobotControlPage() {
           </button>
         </div>
       </div>
+
 
       {/* Hardware Action Notification */}
       {hardwareMsg && (

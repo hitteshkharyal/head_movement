@@ -78,6 +78,8 @@ class ESP32Controller(HardwareController):
         self._timeout = timeout
 
         self._serial: Optional[SerialTransport] = serial_instance
+        self._tcp_reader: Optional[asyncio.StreamReader] = None
+        self._tcp_writer: Optional[asyncio.StreamWriter] = None
         self._connected = False
         self._emergency_stopped = False
         self._is_moving = False
@@ -94,8 +96,20 @@ class ESP32Controller(HardwareController):
         self._ping_sent_time: float = 0.0
 
     @property
+    def transport(self) -> str:
+        return self._transport
+
+    @property
     def port(self) -> str:
         return self._port
+
+    @property
+    def host(self) -> str:
+        return self._host
+
+    @property
+    def wifi_port(self) -> int:
+        return self._wifi_port
 
     @property
     def baud_rate(self) -> int:
@@ -113,7 +127,6 @@ class ESP32Controller(HardwareController):
                         import serial  # pyserial
 
                         logger.info("Opening serial port %s at %d baud...", self._port, self._baud_rate)
-                        # Open with non-blocking timeout
                         self._serial = serial.Serial(
                             port=self._port,
                             baudrate=self._baud_rate,
@@ -121,7 +134,6 @@ class ESP32Controller(HardwareController):
                             write_timeout=1.0,
                         )
                         # ESP32 auto-resets when DTR is toggled on serial connect.
-                        # Wait for bootloader to finish (~1.2 seconds)
                         await asyncio.sleep(1.2)
 
                         if hasattr(self._serial, "reset_input_buffer"):
@@ -131,21 +143,32 @@ class ESP32Controller(HardwareController):
                     elif not self._serial.is_open:
                         self._serial.open()
 
+                elif self._transport in ("wifi", "tcp", "network"):
+                    logger.info("Opening wireless TCP socket to ESP32 at %s:%d...", self._host, self._wifi_port)
+                    self._tcp_reader, self._tcp_writer = await asyncio.wait_for(
+                        asyncio.open_connection(self._host, self._wifi_port),
+                        timeout=4.0,
+                    )
+                    logger.info("Connected to ESP32 WiFi TCP server at %s:%d", self._host, self._wifi_port)
+
                 self._connected = True
                 self._emergency_stopped = False
                 self._last_heartbeat = time.time()
 
-                # Start background serial reader
+                # Start background reader
                 self._start_reader()
 
                 # Send initial handshake ping
                 await self._send_raw(b"<PING>\n")
 
-                logger.info("Successfully connected to ESP32 on port %s (%d baud)", self._port, self._baud_rate)
+                if self._transport == "serial":
+                    logger.info("Connected to ESP32 on serial %s (%d baud)", self._port, self._baud_rate)
+                else:
+                    logger.info("Connected to ESP32 on wireless Wi-Fi %s:%d", self._host, self._wifi_port)
                 return True
             except Exception as exc:
                 self._connected = False
-                logger.warning("Failed to connect to ESP32 (%s): %s", self._port, exc)
+                logger.warning("Failed to connect to ESP32 (%s mode): %s", self._transport, exc)
                 return False
 
     async def disconnect(self) -> None:
@@ -159,6 +182,14 @@ class ESP32Controller(HardwareController):
                 except Exception as exc:
                     logger.debug("Error closing serial port: %s", exc)
                 self._serial = None
+            if self._tcp_writer:
+                try:
+                    self._tcp_writer.close()
+                    await self._tcp_writer.wait_closed()
+                except Exception as exc:
+                    logger.debug("Error closing TCP socket: %s", exc)
+                self._tcp_writer = None
+                self._tcp_reader = None
             logger.info("Disconnected from ESP32")
 
     def _start_reader(self) -> None:
@@ -171,11 +202,16 @@ class ESP32Controller(HardwareController):
             self._reader_task = None
 
     async def _reader_loop(self) -> None:
-        """Background asynchronous task reading and parsing incoming serial messages."""
-        logger.debug("ESP32 serial reader loop started")
-        while self._connected and self._serial is not None:
+        """Background asynchronous task reading and parsing incoming messages."""
+        logger.debug("ESP32 message reader loop started")
+        while self._connected:
             try:
-                line_bytes = await asyncio.to_thread(self._read_line_sync)
+                line_bytes = b""
+                if self._transport == "serial" and self._serial is not None:
+                    line_bytes = await asyncio.to_thread(self._read_line_sync)
+                elif self._transport in ("wifi", "tcp", "network") and self._tcp_reader is not None:
+                    line_bytes = await self._tcp_reader.readline()
+
                 if not line_bytes:
                     await asyncio.sleep(0.02)
                     continue
@@ -188,7 +224,7 @@ class ESP32Controller(HardwareController):
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.debug("Serial reader error: %s", exc)
+                logger.debug("Reader error: %s", exc)
                 await asyncio.sleep(0.05)
 
     def _read_line_sync(self) -> bytes:
@@ -199,6 +235,7 @@ class ESP32Controller(HardwareController):
             return self._serial.readline()
         except Exception:
             return b""
+
 
     async def _handle_incoming_packet(self, packet: str) -> None:
         """Parse incoming formatted protocol packets like `<POS:90.0,90.0>` or `<PONG>`."""
@@ -262,17 +299,28 @@ class ESP32Controller(HardwareController):
         return f"<{inner},C:{chk:02X}>\n".encode("ascii")
 
     async def _send_raw(self, data: bytes) -> bool:
-        """Send raw bytes over the active transport."""
-        if not self._connected or self._serial is None:
+        """Send raw bytes over the active transport (Serial or WiFi TCP)."""
+        if not self._connected:
             return False
         try:
-            self._serial.write(data)
-            self._serial.flush()
-            return True
+            if self._transport == "serial":
+                if self._serial is None:
+                    return False
+                self._serial.write(data)
+                self._serial.flush()
+                return True
+            elif self._transport in ("wifi", "tcp", "network"):
+                if self._tcp_writer is None:
+                    return False
+                self._tcp_writer.write(data)
+                await self._tcp_writer.drain()
+                return True
+            return False
         except Exception as exc:
-            logger.error("Error writing to ESP32 on %s: %s", self._port, exc)
+            logger.error("Error writing to ESP32 (%s mode): %s", self._transport, exc)
             self._connected = False
             return False
+
 
     async def move_pan(self, angle: float, speed: int = 80) -> bool:
         """Move PAN servo to validated absolute angle."""

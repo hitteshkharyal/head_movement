@@ -1,6 +1,6 @@
 /*
   =============================================================================
-  AI HUMANOID PRESENTATION ROBOT — ESP32 SERVO FIRMWARE (V1.1 PRODUCTION)
+  AI HUMANOID PRESENTATION ROBOT — ESP32 SERVO FIRMWARE (V1.2 DUAL-MODE)
   =============================================================================
   Target Microcontroller : ESP32 Dev Module / ESP32-WROOM-32 / NodeMCU-32S
   Servos Supported       : SG90, MG90S, MG995, MG996R (180° standard PWM)
@@ -9,30 +9,32 @@
   Default Signal Pins    : PAN -> GPIO 18 | TILT -> GPIO 19
   Baud Rate              : 115200 bps
 
-  COMMUNICATION PROTOCOL:
+  COMMUNICATION MODES:
   -----------------------------------------------------------------------------
-  1. Pan & Tilt Command  : <P:90.0,T:90.0,S:100,C:XX>\n or <P:90.0,T:90.0,S:100>\n
-     - P = Pan angle (0.0 - 180.0)
-     - T = Tilt angle (0.0 - 180.0)
-     - S = Speed percentage (1 - 100, optional, defaults to 80)
-     - C = Optional 2-digit Hex XOR Checksum of string between '<' and ',C:'
-  2. Single Axis Command : <PAN:90.0,S:100>\n or <TILT:90.0,S:100>\n
-  3. Ping / Handshake    : <PING>\n       -> Responds: <PONG>\n
-  4. Status Request      : <STATUS>\n     -> Responds: <STATUS:P:90.0,T:90.0,M:0,E:0>\n
-  5. Center              : <CENTER>\n     -> Responds: <ACK:CENTER>\n
-  6. Emergency Stop      : <!ESTOP>\n     -> Responds: <!ESTOP_ACTIVE>\n
-  7. Resume / Clear Stop : <RESUME>\n     -> Responds: <ACK:RESUME>\n
-  8. Stop Movement       : <STOP>\n       -> Responds: <ACK:STOP>\n
-  9. Gesture Trigger     : <GESTURE:nod>\n -> Responds: <ACK:GESTURE:nod>\n
+  1. USB Serial Mode     : Plug USB into PC, connects via COM port @ 115200 baud.
+  2. Wireless Wi-Fi Mode : Set ENABLE_WIFI to true and enter SSID/Password.
+                           ESP32 connects to Wi-Fi and listens on TCP port 8080.
+                           Both USB Serial and Wi-Fi work simultaneously!
   =============================================================================
 */
 
 #include <ESP32Servo.h>
+#include <WiFi.h>
 
 // --- PIN DEFINITIONS ---
 #define PIN_SERVO_PAN   18   // GPIO 18 for Pan (Yaw - Horizontal)
 #define PIN_SERVO_TILT  19   // GPIO 19 for Tilt (Pitch - Vertical)
 #define PIN_LED_STATUS   2   // Built-in blue LED for connection & motion status
+
+// --- WIRELESS WI-FI CONFIGURATION (OPTIONAL) ---
+// Set ENABLE_WIFI to true to enable wireless robot control over your home/office Wi-Fi.
+#define ENABLE_WIFI false
+const char* WIFI_SSID     = "YOUR_WIFI_NAME";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const uint16_t TCP_PORT   = 8080;
+
+WiFiServer wifiServer(TCP_PORT);
+WiFiClient wifiClient;
 
 // --- SERVO CONFIGURATION (MG90S / MG995 / MG996R) ---
 #define SERVO_MIN_PULSE_US  500    // 0 degrees (0.5ms)
@@ -54,7 +56,8 @@ bool  isMoving         = false;
 
 unsigned long lastStepTime = 0;
 unsigned long lastTelemetryTime = 0;
-String inputBuffer = "";
+String serialInputBuffer = "";
+String wifiInputBuffer = "";
 const unsigned int MAX_BUFFER_LEN = 128;
 
 // Compute XOR Checksum of payload string
@@ -66,8 +69,16 @@ uint8_t computeChecksum(const String& payload) {
   return chk;
 }
 
+// Broadcast message over both Serial and Wi-Fi
+void sendResponse(const String& msg) {
+  Serial.println(msg);
+  if (ENABLE_WIFI && wifiClient && wifiClient.connected()) {
+    wifiClient.println(msg);
+  }
+}
+
 void setup() {
-  // Initialize Serial port
+  // Initialize USB Serial port
   Serial.begin(115200);
   
   pinMode(PIN_LED_STATUS, OUTPUT);
@@ -90,7 +101,7 @@ void setup() {
   servoPan.write((int)currentPanAngle);
   servoTilt.write((int)currentTiltAngle);
 
-  // Flash status LED 3 times on boot
+  // Flash status LED on boot
   for (int i = 0; i < 3; i++) {
     digitalWrite(PIN_LED_STATUS, HIGH);
     delay(80);
@@ -98,19 +109,46 @@ void setup() {
     delay(80);
   }
 
-  // Announce ready state over serial
+  // Initialize Wi-Fi if enabled
+  if (ENABLE_WIFI) {
+    Serial.printf("[WiFi] Connecting to: %s ...\n", WIFI_SSID);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    
+    unsigned long startAttempt = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - startAttempt < 10000)) {
+      delay(250);
+      Serial.print(".");
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\n[WiFi] Connected successfully!");
+      Serial.print("[WiFi] IP Address: ");
+      Serial.println(WiFi.localIP());
+      Serial.printf("[WiFi] TCP Server listening on port %d\n", TCP_PORT);
+      wifiServer.begin();
+    } else {
+      Serial.println("\n[WiFi] Connection timed out. Operating in USB Serial mode.");
+    }
+  }
+
   delay(100);
-  Serial.println("<READY:ESP32_SERVO_CONTROLLER_V1.1>");
+  sendResponse("<READY:ESP32_SERVO_CONTROLLER_V1.2>");
 }
 
 void loop() {
-  // 1. Process serial commands
+  // 1. Process USB Serial commands
   readSerial();
 
-  // 2. Smooth trajectory stepping toward targets
+  // 2. Process Wi-Fi TCP socket commands
+  if (ENABLE_WIFI) {
+    readWiFi();
+  }
+
+  // 3. Smooth trajectory stepping toward targets
   updateServoMovement();
 
-  // 3. Periodic telemetry during movement
+  // 4. Periodic telemetry during movement
   broadcastTelemetry();
 }
 
@@ -119,18 +157,49 @@ void readSerial() {
     char inChar = (char)Serial.read();
 
     if (inChar == '<') {
-      inputBuffer = "";
+      serialInputBuffer = "";
     } else if (inChar == '>') {
-      if (inputBuffer.length() > 0) {
-        parseAndExecuteCommand(inputBuffer);
+      if (serialInputBuffer.length() > 0) {
+        parseAndExecuteCommand(serialInputBuffer);
       }
-      inputBuffer = "";
+      serialInputBuffer = "";
     } else if (inChar != '\r' && inChar != '\n') {
-      if (inputBuffer.length() < MAX_BUFFER_LEN) {
-        inputBuffer += inChar;
+      if (serialInputBuffer.length() < MAX_BUFFER_LEN) {
+        serialInputBuffer += inChar;
       } else {
-        // Buffer overflow protection
-        inputBuffer = "";
+        serialInputBuffer = "";
+      }
+    }
+  }
+}
+
+void readWiFi() {
+  // Accept new incoming TCP client
+  if (wifiServer.hasClient()) {
+    if (!wifiClient || !wifiClient.connected()) {
+      if (wifiClient) wifiClient.stop();
+      wifiClient = wifiServer.available();
+      Serial.println("[WiFi] New client connected!");
+      wifiClient.println("<READY:ESP32_SERVO_CONTROLLER_V1.2>");
+    }
+  }
+
+  if (wifiClient && wifiClient.connected()) {
+    while (wifiClient.available()) {
+      char inChar = (char)wifiClient.read();
+      if (inChar == '<') {
+        wifiInputBuffer = "";
+      } else if (inChar == '>') {
+        if (wifiInputBuffer.length() > 0) {
+          parseAndExecuteCommand(wifiInputBuffer);
+        }
+        wifiInputBuffer = "";
+      } else if (inChar != '\r' && inChar != '\n') {
+        if (wifiInputBuffer.length() < MAX_BUFFER_LEN) {
+          wifiInputBuffer += inChar;
+        } else {
+          wifiInputBuffer = "";
+        }
       }
     }
   }
@@ -144,7 +213,7 @@ void parseAndExecuteCommand(String cmd) {
     isEmergencyStop = true;
     isMoving = false;
     digitalWrite(PIN_LED_STATUS, HIGH); // Steady LED on E-Stop
-    Serial.println("<!ESTOP_ACTIVE>");
+    sendResponse("<!ESTOP_ACTIVE>");
     return;
   }
 
@@ -152,25 +221,27 @@ void parseAndExecuteCommand(String cmd) {
   if (cmd == "RESUME") {
     isEmergencyStop = false;
     digitalWrite(PIN_LED_STATUS, LOW);
-    Serial.println("<ACK:RESUME>");
+    sendResponse("<ACK:RESUME>");
     return;
   }
 
   if (isEmergencyStop) {
-    Serial.println("<ERR:BLOCKED_BY_ESTOP>");
+    sendResponse("<ERR:BLOCKED_BY_ESTOP>");
     return;
   }
 
   // 3. Ping / Handshake Command
   if (cmd == "PING" || cmd == "HELLO" || cmd == "CONNECT") {
-    Serial.println("<PONG>");
+    sendResponse("<PONG>");
     return;
   }
 
   // 4. Status Query
   if (cmd == "STATUS" || cmd == "GET_STATUS") {
-    Serial.printf("<STATUS:P:%.1f,T:%.1f,M:%d,E:%d>\n", 
-                  currentPanAngle, currentTiltAngle, isMoving ? 1 : 0, isEmergencyStop ? 1 : 0);
+    char buf[64];
+    snprintf(buf, sizeof(buf), "<STATUS:P:%.1f,T:%.1f,M:%d,E:%d>",
+             currentPanAngle, currentTiltAngle, isMoving ? 1 : 0, isEmergencyStop ? 1 : 0);
+    sendResponse(String(buf));
     return;
   }
 
@@ -180,7 +251,7 @@ void parseAndExecuteCommand(String cmd) {
     targetTiltAngle = 90.0;
     movementSpeed = 80;
     isMoving = true;
-    Serial.println("<ACK:CENTER>");
+    sendResponse("<ACK:CENTER>");
     return;
   }
 
@@ -189,7 +260,7 @@ void parseAndExecuteCommand(String cmd) {
     targetPanAngle = currentPanAngle;
     targetTiltAngle = currentTiltAngle;
     isMoving = false;
-    Serial.println("<ACK:STOP>");
+    sendResponse("<ACK:STOP>");
     return;
   }
 
@@ -207,7 +278,9 @@ void parseAndExecuteCommand(String cmd) {
     targetPanAngle = constrain(newPan, 0.0, 180.0);
     movementSpeed = constrain(newSpeed, 1, 100);
     isMoving = true;
-    Serial.printf("<ACK:PAN:%.1f>\n", targetPanAngle);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "<ACK:PAN:%.1f>", targetPanAngle);
+    sendResponse(String(buf));
     return;
   }
 
@@ -225,13 +298,14 @@ void parseAndExecuteCommand(String cmd) {
     targetTiltAngle = constrain(newTilt, 0.0, 180.0);
     movementSpeed = constrain(newSpeed, 1, 100);
     isMoving = true;
-    Serial.printf("<ACK:TILT:%.1f>\n", targetTiltAngle);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "<ACK:TILT:%.1f>", targetTiltAngle);
+    sendResponse(String(buf));
     return;
   }
 
   // 9. Combined Position Command: P:90.0,T:90.0,S:100[,C:XX]
   if (cmd.startsWith("P:") && cmd.indexOf(",T:") > 0) {
-    // Optional Checksum Validation
     int cIdx = cmd.lastIndexOf(",C:");
     if (cIdx > 0) {
       String payload = cmd.substring(0, cIdx);
@@ -240,10 +314,10 @@ void parseAndExecuteCommand(String cmd) {
       uint8_t calculatedChk = computeChecksum(payload);
 
       if (receivedChk != calculatedChk) {
-        Serial.println("<ERR:CHECKSUM_MISMATCH>");
+        sendResponse("<ERR:CHECKSUM_MISMATCH>");
         return;
       }
-      cmd = payload; // Strip checksum field for parsing
+      cmd = payload;
     }
 
     float newPan = targetPanAngle;
@@ -264,7 +338,6 @@ void parseAndExecuteCommand(String cmd) {
       newTilt = cmd.substring(tStart + 3).toFloat();
     }
 
-    // Boundary constraints
     newPan = constrain(newPan, 0.0, 180.0);
     newTilt = constrain(newTilt, 0.0, 180.0);
     newSpeed = constrain(newSpeed, 1, 100);
@@ -274,26 +347,26 @@ void parseAndExecuteCommand(String cmd) {
     movementSpeed = newSpeed;
     isMoving = true;
 
-    Serial.printf("<ACK:POS:%.1f,%.1f>\n", targetPanAngle, targetTiltAngle);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "<ACK:POS:%.1f,%.1f>", targetPanAngle, targetTiltAngle);
+    sendResponse(String(buf));
     return;
   }
 
   // 10. Gesture Command: <GESTURE:nod>
   if (cmd.startsWith("GESTURE:")) {
     String gName = cmd.substring(8);
-    Serial.printf("<ACK:GESTURE:%s>\n", gName.c_str());
+    sendResponse("<ACK:GESTURE:" + gName + ">");
     return;
   }
 
-  // Unknown command
-  Serial.printf("<ERR:UNKNOWN_CMD:%s>\n", cmd.c_str());
+  sendResponse("<ERR:UNKNOWN_CMD:" + cmd + ">");
 }
 
 void updateServoMovement() {
   if (!isMoving || isEmergencyStop) return;
 
   unsigned long now = millis();
-  // Adjust step interval based on speed (100% speed = ~10ms/step, 10% = 50ms/step)
   int stepIntervalMs = map(movementSpeed, 1, 100, 45, 8);
 
   if (now - lastStepTime >= (unsigned long)stepIntervalMs) {
@@ -302,7 +375,7 @@ void updateServoMovement() {
     float panDiff = targetPanAngle - currentPanAngle;
     float tiltDiff = targetTiltAngle - currentTiltAngle;
 
-    float maxStep = 2.0; // Max angle increment per tick for smoothness
+    float maxStep = 2.0;
 
     if (abs(panDiff) > maxStep) {
       currentPanAngle += (panDiff > 0) ? maxStep : -maxStep;
@@ -324,9 +397,11 @@ void updateServoMovement() {
       currentTiltAngle = targetTiltAngle;
       isMoving = false;
       digitalWrite(PIN_LED_STATUS, LOW);
-      Serial.printf("<POS:%.1f,%.1f>\n", currentPanAngle, currentTiltAngle);
+      char buf[32];
+      snprintf(buf, sizeof(buf), "<POS:%.1f,%.1f>", currentPanAngle, currentTiltAngle);
+      sendResponse(String(buf));
     } else {
-      digitalWrite(PIN_LED_STATUS, HIGH); // LED ON while in active motion
+      digitalWrite(PIN_LED_STATUS, HIGH);
     }
   }
 }
@@ -334,9 +409,12 @@ void updateServoMovement() {
 void broadcastTelemetry() {
   if (!isMoving) return;
   unsigned long now = millis();
-  if (now - lastTelemetryTime >= 100) { // 10 Hz telemetry during movement
+  if (now - lastTelemetryTime >= 100) {
     lastTelemetryTime = now;
-    Serial.printf("<POS:%.1f,%.1f>\n", currentPanAngle, currentTiltAngle);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "<POS:%.1f,%.1f>", currentPanAngle, currentTiltAngle);
+    sendResponse(String(buf));
   }
 }
+
 

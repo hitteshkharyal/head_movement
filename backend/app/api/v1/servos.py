@@ -203,15 +203,20 @@ async def connect_hardware(
         mode=req.mode,
         port=req.port or "COM3",
         baud_rate=req.baud_rate or 115200,
+        host=req.host or "192.168.1.100",
+        wifi_port=req.wifi_port or 8080,
     )
     return HardwareConnectResponse(
         success=success,
         mode=hw.active_mode,
         port=hw.active_port if hw.active_mode in ("serial", "esp32", "usb") else None,
         baud_rate=hw.active_baud if hw.active_mode in ("serial", "esp32", "usb") else None,
+        host=hw.active_host if hw.active_mode in ("wifi", "tcp", "network") else None,
+        wifi_port=hw.active_wifi_port if hw.active_mode in ("wifi", "tcp", "network") else None,
         connected=success,
         message=f"Switched to {hw.active_mode.upper()} mode. Status: {'Connected' if success else 'Connection failed'}",
     )
+
 
 
 @router.post("/disconnect", response_model=HardwareConnectResponse)

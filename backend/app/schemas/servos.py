@@ -56,9 +56,11 @@ class HardwarePortItem(BaseModel):
 
 
 class HardwareConnectRequest(BaseModel):
-    mode: str = Field(..., description="'mock' or 'serial'")
+    mode: str = Field(..., description="'mock', 'serial', or 'wifi'")
     port: Optional[str] = Field("COM3", description="Serial port name, e.g. COM3 or /dev/ttyUSB0")
     baud_rate: Optional[int] = Field(115200, description="Serial baud rate, defaults to 115200")
+    host: Optional[str] = Field("192.168.1.100", description="WiFi IP address of ESP32 (for wifi mode)")
+    wifi_port: Optional[int] = Field(8080, description="WiFi TCP port of ESP32 (for wifi mode)")
 
 
 class HardwareConnectResponse(BaseModel):
@@ -66,6 +68,9 @@ class HardwareConnectResponse(BaseModel):
     mode: str
     port: Optional[str] = None
     baud_rate: Optional[int] = None
+    host: Optional[str] = None
+    wifi_port: Optional[int] = None
     connected: bool
     message: str
+
 

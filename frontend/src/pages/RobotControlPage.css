@@ -543,6 +543,16 @@
   flex-wrap: wrap;
 }
 
+.hardware-bar__tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--color-bg-primary);
+  padding: 3px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-bg-border);
+}
+
 .hardware-bar__select-group {
   display: flex;
   align-items: center;
@@ -555,7 +565,8 @@
   font-weight: 500;
 }
 
-.hardware-bar__select {
+.hardware-bar__select,
+.hardware-bar__input {
   background: var(--color-bg-primary);
   border: 1px solid var(--color-bg-border);
   color: var(--color-text-primary);
@@ -566,11 +577,18 @@
   min-width: 140px;
 }
 
-.hardware-bar__select:focus {
+.hardware-bar__input--short {
+  min-width: 70px;
+  width: 70px;
+}
+
+.hardware-bar__select:focus,
+.hardware-bar__input:focus {
   border-color: var(--color-accent-blue);
 }
 
 /* Info Banner */
+
 .info-banner {
   padding: var(--space-3) var(--space-4);
   background: rgba(59, 130, 246, 0.15);

@@ -42,6 +42,8 @@ export interface HardwareConnectResult {
   mode: string;
   port?: string | null;
   baud_rate?: number | null;
+  host?: string | null;
+  wifi_port?: number | null;
   connected: boolean;
   message: string;
 }
@@ -66,14 +68,23 @@ export const servoService = {
     return res.data;
   },
 
-  async connectHardware(mode: string, port = "COM3", baud_rate = 115200): Promise<HardwareConnectResult> {
+  async connectHardware(
+    mode: string,
+    port = "COM3",
+    baud_rate = 115200,
+    host = "192.168.1.100",
+    wifi_port = 8080,
+  ): Promise<HardwareConnectResult> {
     const res = await axios.post<HardwareConnectResult>(`${API_BASE}/connect`, {
       mode,
       port,
       baud_rate,
+      host,
+      wifi_port,
     });
     return res.data;
   },
+
 
   async disconnectHardware(): Promise<HardwareConnectResult> {
     const res = await axios.post<HardwareConnectResult>(`${API_BASE}/disconnect`);
