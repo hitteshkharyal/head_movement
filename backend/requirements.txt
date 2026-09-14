@@ -1,4 +1,4 @@
-﻿# Core Framework
+# Core Framework
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
@@ -17,6 +17,11 @@ websockets==13.1
 
 # Serial communication (for ESP32 serial mode)
 pyserial==3.5
+
+# Vision & Computer Vision
+opencv-python>=5.0.0.93
+numpy>=2.0.0
+mediapipe>=1.0.1
 
 # Validation & utilities
 python-multipart==0.0.12
