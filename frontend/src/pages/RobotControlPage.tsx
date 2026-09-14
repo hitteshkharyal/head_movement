@@ -167,26 +167,26 @@ export default function RobotControlPage() {
 
   // --- INDEPENDENT SINGLE-AXIS & MULTI-AXIS COMMANDS ---
 
-  // Move Pan ONLY (keeps Tilt at current targetTilt)
+  // Move Pan ONLY (leaves Tilt completely untouched on hardware)
   const handlePanChange = async (newPan: number) => {
     const clamped = Math.max(0, Math.min(180, newPan));
     setTargetPan(clamped);
-    if (!sendCommand({ type: "move", pan: clamped, tilt: targetTilt, speed })) {
+    if (!sendCommand({ type: "pan", pan: clamped, speed })) {
       try {
-        await servoService.move(clamped, targetTilt, speed);
+        await servoService.movePan(clamped, speed);
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message);
       }
     }
   };
 
-  // Move Tilt ONLY (keeps Pan at current targetPan)
+  // Move Tilt ONLY (leaves Pan completely untouched on hardware)
   const handleTiltChange = async (newTilt: number) => {
     const clamped = Math.max(30, Math.min(150, newTilt));
     setTargetTilt(clamped);
-    if (!sendCommand({ type: "move", pan: targetPan, tilt: clamped, speed })) {
+    if (!sendCommand({ type: "tilt", tilt: clamped, speed })) {
       try {
-        await servoService.move(targetPan, clamped, speed);
+        await servoService.moveTilt(clamped, speed);
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message);
       }
@@ -236,9 +236,9 @@ export default function RobotControlPage() {
   // Center Pan Only (90°, leaves Tilt untouched)
   const handleCenterPan = async () => {
     setTargetPan(90);
-    if (!sendCommand({ type: "move", pan: 90, tilt: targetTilt, speed })) {
+    if (!sendCommand({ type: "center_pan" })) {
       try {
-        await servoService.move(90, targetTilt, speed);
+        await servoService.centerPan();
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message);
       }
@@ -248,9 +248,9 @@ export default function RobotControlPage() {
   // Center Tilt Only (90° - Normal Level Gaze, leaves Pan untouched)
   const handleCenterTilt = async () => {
     setTargetTilt(90);
-    if (!sendCommand({ type: "move", pan: targetPan, tilt: 90, speed })) {
+    if (!sendCommand({ type: "center_tilt" })) {
       try {
-        await servoService.move(targetPan, 90, speed);
+        await servoService.centerTilt();
       } catch (e: any) {
         setError(e?.response?.data?.detail || e.message);
       }

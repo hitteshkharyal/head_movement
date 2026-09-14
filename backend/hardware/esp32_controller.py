@@ -330,7 +330,7 @@ class ESP32Controller(HardwareController):
 
         validated = validate_angle(angle, self._pan_config)
         self._pan_angle = validated
-        packet = self._format_command(self._pan_angle, self._tilt_angle, speed)
+        packet = f"<PAN:{self._pan_angle:.1f},S:{speed}>\n".encode("ascii")
         return await self._send_raw(packet)
 
     async def move_tilt(self, angle: float, speed: int = 80) -> bool:
@@ -341,7 +341,7 @@ class ESP32Controller(HardwareController):
 
         validated = validate_angle(angle, self._tilt_config)
         self._tilt_angle = validated
-        packet = self._format_command(self._pan_angle, self._tilt_angle, speed)
+        packet = f"<TILT:{self._tilt_angle:.1f},S:{speed}>\n".encode("ascii")
         return await self._send_raw(packet)
 
     async def move_pan_tilt(self, pan: float, tilt: float, speed: int = 80) -> bool:
