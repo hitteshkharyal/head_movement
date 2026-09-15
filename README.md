@@ -51,7 +51,9 @@ A production-grade, full-stack software platform for an **AI-powered Humanoid Pr
 | **Phase 2** | **Computer Vision & 3D Head Tracking** | MediaPipe Face Mesh 468-landmark 3D pose estimation, Euler angle extraction (yaw, pitch, roll), smoothing filters, Mirror & Follow tracking modes, and live MJPEG streaming with HUD overlays. | `52/52` Pytest<br>`11/11` Vitest | ✅ Complete |
 | **Phase 3** | **Gesture Studio & Active Learning** | Dynamic gesture recording pipeline, trajectory feature extraction, dataset curation & auto-labeling, training metrics evaluation, and predefined gesture sequences (NOD, SHAKE, TILT). | `59/59` Pytest<br>`15/15` Vitest | ✅ Complete |
 | **Hardware Bridge & Human Gestures** | **Multi-Transport Firmware & Gestures** | • **YES Gesture (Up & Down Nod)**: Vertical multi-cycle nodding with Pan strictly locked.<br>• **NO Gesture (Left & Right Shake)**: Horizontal multi-cycle head shake with Tilt strictly locked.<br>• **360° Omnidirectional Gaze Pad** + Direct 3D Face Drag-to-Look.<br>• **Zero-Cross-Talk Steppers** & Independent Centering (`Center Pan`, `Center Tilt`, `Center Both`).<br>• **Dual Hardware Transports**: USB Serial 115200 + Wireless Wi-Fi TCP 8080. | `61/61` Pytest<br>`16/16` Vitest | ✅ Complete |
-| **Phase 4** | **Voice & Audio Pipeline** | Speech-to-Text (STT via Whisper), Wake Word detection, and Text-to-Speech (TTS) with viseme/gesture synchronization. | — | ⏳ Awaiting Approval |
+| **Phase 7** | **Gesture Model Training Pipeline** | Scikit-learn multi-class model training (`RandomForestClassifier`, `GradientBoostingClassifier`, `MLPClassifier`), 630-dim fixed feature vectors (540 temporal + 90 summary statistics), synthetic trajectory bootstrapping, stratified 70/15/15 train/val/test split, macro F1 / Precision / Recall, interactive confusion matrix heatmaps, and versioned `.joblib` artifact storage. | `65/65` Pytest<br>`17/17` Vitest | ✅ Complete |
+| **Phase 8** | **Live ML Gesture Prediction Engine** | Real-time sliding window (30-frame buffer) inference at 30 FPS, confidence gating threshold (≥ 80%), 3-frame debouncing, 1.0s cooldown timer, real-time HUD telemetry stream, and closed-loop autonomous robot reaction dispatch (robot nods/shakes servos in response to human gesture). | `68/68` Pytest<br>`18/18` Vitest | ✅ Complete |
+| **Phase 4** | **Voice & Audio Pipeline** | Speech-to-Text (STT via Whisper), Wake Word detection, and Text-to-Speech (TTS) with viseme/gesture synchronization. | — | ⏳ Next Up |
 | **Phase 5** | **Presentation Flow Controller** | Script orchestration engine, slide sync, Q&A handling, and audience attention switching. | — | ⏳ Pending |
 | **Phase 6** | **Cloud Telemetry & Diagnostics** | Fleet diagnostics, remote OTA update hooks, and cloud session analytics. | — | ⏳ Pending |
 
@@ -173,14 +175,14 @@ Open **`http://localhost:5173`** in your browser.
 cd backend
 .venv\Scripts\activate
 pytest tests -v
-# Output: 61 passed in ~5.0s
+# Output: 68 passed in ~10.0s
 ```
 
 ### Frontend Test Suite (Vitest)
 ```bash
 cd frontend
 npm test -- --run
-# Output: 16 passed in ~3.5s
+# Output: 18 passed in ~4.5s
 ```
 
 ---

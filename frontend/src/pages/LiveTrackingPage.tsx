@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { visionService, VisionStatus } from "../services/visionService";
+import { trainingService, InferenceStatus } from "../services/trainingService";
 import "./LiveTrackingPage.css";
 
 export default function LiveTrackingPage() {
@@ -19,12 +20,14 @@ export default function LiveTrackingPage() {
     dead_zone: 3.0,
   });
 
+  const [inferenceStatus, setInferenceStatus] = useState<InferenceStatus | null>(null);
   const [overlayMesh, setOverlayMesh] = useState(true);
   const [overlayBbox, setOverlayBbox] = useState(true);
   const [overlayAxis, setOverlayAxis] = useState(true);
   const [selectedMode, setSelectedMode] = useState("mirror");
   const [error, setError] = useState<string | null>(null);
   const [streamError, setStreamError] = useState(false);
+  const [togglingReaction, setTogglingReaction] = useState(false);
   const pollTimerRef = useRef<number | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -37,6 +40,13 @@ export default function LiveTrackingPage() {
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Vision backend offline");
+    }
+
+    try {
+      const inf = await trainingService.getInferenceStatus();
+      setInferenceStatus(inf);
+    } catch {
+      // Inference status failure is non-blocking
     }
   }, []);
 
@@ -97,6 +107,41 @@ export default function LiveTrackingPage() {
 
   const streamUrl = visionService.getStreamUrl(overlayMesh || overlayBbox || overlayAxis);
 
+  const handleToggleAutonomousReaction = async () => {
+    if (!inferenceStatus) return;
+    try {
+      setTogglingReaction(true);
+      const nextState = !inferenceStatus.autonomous_reaction_enabled;
+      const updated = await trainingService.toggleAutonomousReaction(nextState);
+      setInferenceStatus(updated);
+    } catch (err: any) {
+      setError(err?.message || "Failed to toggle autonomous reaction");
+    } finally {
+      setTogglingReaction(false);
+    }
+  };
+
+  const getGestureBadge = (gesture?: string | null) => {
+    switch (gesture) {
+      case "yes_nod":
+        return { label: "YES (NOD) ↕️", class: "gesture-badge--yes" };
+      case "no_shake":
+        return { label: "NO (SHAKE) ↔️", class: "gesture-badge--no" };
+      case "head_tilt_left":
+        return { label: "TILT LEFT 🔄", class: "gesture-badge--tilt" };
+      case "head_tilt_right":
+        return { label: "TILT RIGHT 🔄", class: "gesture-badge--tilt" };
+      case "look_away":
+        return { label: "LOOK AWAY 👀", class: "gesture-badge--away" };
+      case "attention":
+        return { label: "ATTENTION ✨", class: "gesture-badge--attention" };
+      default:
+        return { label: "MONITORING / IDLE", class: "gesture-badge--idle" };
+    }
+  };
+
+  const gestureInfo = getGestureBadge(inferenceStatus?.last_detected_gesture);
+
   return (
     <div className="live-tracking" data-testid="live-tracking-page">
       {/* Header */}
@@ -104,7 +149,7 @@ export default function LiveTrackingPage() {
         <div>
           <h1 className="live-tracking__title">Computer Vision & Live Tracking</h1>
           <p className="live-tracking__subtitle">
-            Real-time MediaPipe face mesh, 3D head pose estimation (solvePnP), and closed-loop servo mirroring
+            Real-time MediaPipe face mesh, 3D head pose estimation (solvePnP), and real-time ML gesture prediction
           </p>
         </div>
         <div className="live-tracking__header-actions">
@@ -201,6 +246,79 @@ export default function LiveTrackingPage() {
                 />
                 3D Pose Vectors
               </label>
+            </div>
+          </div>
+
+          {/* ML Real-time Gesture Prediction Card */}
+          <div className="card ml-prediction-card" data-testid="gesture-prediction-hud">
+            <div className="ml-prediction-card__header">
+              <div className="ml-title-group">
+                <span className="ml-title-icon">🧠</span>
+                <div>
+                  <h2 className="card__title">Real-Time Gesture ML Engine</h2>
+                  <span className="ml-subtitle">
+                    {inferenceStatus?.active_model_name
+                      ? `Model: ${inferenceStatus.active_model_name} (${inferenceStatus.active_model_version || "v1.0.0"})`
+                      : "No Model Loaded (Train model in Gesture Studio)"}
+                  </span>
+                </div>
+              </div>
+              <div className="ml-cooldown-badge">
+                {inferenceStatus?.is_cooldown_active ? (
+                  <span className="badge badge--warning">
+                    ⏳ COOLDOWN ({inferenceStatus.cooldown_remaining_sec.toFixed(1)}s)
+                  </span>
+                ) : inferenceStatus?.is_ready ? (
+                  <span className="badge badge--success">⚡ READY (30 FPS)</span>
+                ) : (
+                  <span className="badge badge--neutral">
+                    BUFFERING ({inferenceStatus?.buffer_frames || 0}/{inferenceStatus?.buffer_capacity || 30})
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Live Detected Gesture Banner */}
+            <div className="gesture-live-banner">
+              <div className="gesture-live-banner__main">
+                <span className="gesture-live-banner__label">DETECTED GESTURE:</span>
+                <span className={`gesture-live-banner__value ${gestureInfo.class}`}>
+                  {gestureInfo.label}
+                </span>
+              </div>
+              <div className="gesture-live-banner__confidence">
+                <span>Confidence:</span>
+                <span className="gesture-conf-num">
+                  {Math.round((inferenceStatus?.last_confidence || 0) * 100)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Confidence Bar */}
+            <div className="confidence-meter-bar">
+              <div
+                className="confidence-meter-fill"
+                style={{ width: `${Math.round((inferenceStatus?.last_confidence || 0) * 100)}%` }}
+              />
+            </div>
+
+            {/* Autonomous Robot Reaction Controls */}
+            <div className="autonomous-reaction-box">
+              <div className="autonomous-reaction-info">
+                <span className="autonomous-reaction-title">🤖 Autonomous Robot Reaction</span>
+                <span className="autonomous-reaction-desc">
+                  Robot automatically nods or shakes servos when human gesture confidence exceeds 80%
+                </span>
+              </div>
+              <button
+                className={`btn btn--small ${
+                  inferenceStatus?.autonomous_reaction_enabled ? "btn--primary" : "btn--secondary"
+                }`}
+                onClick={handleToggleAutonomousReaction}
+                disabled={togglingReaction}
+              >
+                {inferenceStatus?.autonomous_reaction_enabled ? "✅ ENABLED" : "DISABLED"}
+              </button>
             </div>
           </div>
         </div>

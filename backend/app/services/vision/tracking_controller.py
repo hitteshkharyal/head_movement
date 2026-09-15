@@ -92,6 +92,16 @@ class TrackingController:
                     pose = self._tracker.process_frame(frame)
                     self._last_pose = pose
 
+                    # Feed live pose to real-time gesture inference engine
+                    try:
+                        from app.services.ml.gesture_predictor import get_gesture_predictor
+                        predictor = get_gesture_predictor()
+                        predictor.push_frame_pose(pose, frame.shape)
+                        if predictor.is_ready:
+                            asyncio.create_task(predictor.predict_current_window())
+                    except Exception as pred_err:
+                        logger.debug("Live predictor update error: %s", pred_err)
+
                     if pose.face_detected and self.mode != "off":
                         await self._dispatch_tracking(pose)
 

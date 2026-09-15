@@ -7,7 +7,11 @@ import {
   ActiveLearningItem,
   RecordStatus,
 } from "../services/gestureService";
-import { visionService } from "../services/visionService";
+import {
+  trainingService,
+  ModelVersion,
+  ModelMetrics,
+} from "../services/trainingService";
 import "./GestureTrainingPage.css";
 
 export default function GestureTrainingPage() {
@@ -15,7 +19,11 @@ export default function GestureTrainingPage() {
   const [samples, setSamples] = useState<GestureSample[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [activeQueue, setActiveQueue] = useState<ActiveLearningItem[]>([]);
-  const [selectedClass, setSelectedClass] = useState<string>("nod");
+  const [models, setModels] = useState<ModelVersion[]>([]);
+  const [selectedModel, setSelectedModel] = useState<ModelVersion | null>(null);
+
+  // Studio Recording State
+  const [selectedClass, setSelectedClass] = useState<string>("yes_nod");
   const [sequenceLength, setSequenceLength] = useState<number>(30);
   const [countdownSeconds, setCountdownSeconds] = useState<number>(3);
   const [recordingStatus, setRecordingStatus] = useState<RecordStatus>({
@@ -26,6 +34,11 @@ export default function GestureTrainingPage() {
     duration_seconds: 0,
   });
 
+  // Training State
+  const [isTraining, setIsTraining] = useState(false);
+  const [modelType, setModelType] = useState<string>("sklearn_rf");
+  const [trainingEstimators, setTrainingEstimators] = useState<number>(100);
+
   const [newDatasetName, setNewDatasetName] = useState("");
   const [showNewDatasetModal, setShowNewDatasetModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,23 +47,31 @@ export default function GestureTrainingPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [clsData, smpData, dsData, alData] = await Promise.all([
+      const [clsData, smpData, dsData, alData, mdlData] = await Promise.all([
         gestureService.getClasses(),
         gestureService.getSamples(),
         gestureService.getDatasets(),
         gestureService.getActiveLearningQueue(),
+        trainingService.getModels(),
       ]);
-      setClasses(clsData);
-      setSamples(smpData);
-      setDatasets(dsData);
-      setActiveQueue(alData);
-      if (clsData.length > 0 && !selectedClass) {
+      setClasses(clsData || []);
+      setSamples(smpData || []);
+      setDatasets(dsData || []);
+      setActiveQueue(alData || []);
+      setModels(mdlData || []);
+
+      if (mdlData && mdlData.length > 0) {
+        const active = mdlData.find((m) => m.status === "active") || mdlData[0];
+        setSelectedModel(active);
+      }
+
+      if (clsData && clsData.length > 0) {
         setSelectedClass(clsData[0].name);
       }
     } catch (err: any) {
-      setError(err?.message || "Failed to load gesture data");
+      setError(err?.message || "Failed to load gesture and training data");
     }
-  }, [selectedClass]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -66,7 +87,6 @@ export default function GestureTrainingPage() {
           if (st.status === "completed") {
             if (pollTimerRef.current) clearInterval(pollTimerRef.current);
             setSuccessMsg(`Gesture sample recorded successfully for '${st.gesture_name}'!`);
-            // Save sample to database
             if (st.feature_file_path && st.gesture_name) {
               await gestureService.createSample({
                 gesture_name: st.gesture_name,
@@ -152,6 +172,49 @@ export default function GestureTrainingPage() {
     }
   };
 
+  // --- MODEL TRAINING HANDLERS ---
+
+  const handleTrainModel = async () => {
+    try {
+      setIsTraining(true);
+      setError(null);
+      setSuccessMsg(null);
+      const trained = await trainingService.trainModel({
+        model_type: modelType,
+        n_estimators: trainingEstimators,
+        model_name: `Gesture-${modelType === "sklearn_mlp" ? "MLP" : modelType === "sklearn_gb" ? "GB" : "RF"}-Model`,
+      });
+      setSuccessMsg(`🎉 Model ${trained.version} trained successfully! Test Accuracy: ${((trained.metrics?.test_accuracy || 0) * 100).toFixed(1)}%`);
+      setSelectedModel(trained);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err.message || "Model training failed");
+    } finally {
+      setIsTraining(false);
+    }
+  };
+
+  const handleActivateModel = async (modelId: string) => {
+    try {
+      await trainingService.activateModel(modelId);
+      setSuccessMsg("Model activated for live inference!");
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || "Failed to activate model");
+    }
+  };
+
+  const handleDeleteModel = async (modelId: string) => {
+    try {
+      await trainingService.deleteModel(modelId);
+      if (selectedModel?.id === modelId) setSelectedModel(null);
+      setSuccessMsg("Model version deleted");
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete model");
+    }
+  };
+
   const isRecordingActive =
     recordingStatus.status === "countdown" || recordingStatus.status === "recording";
 
@@ -160,17 +223,22 @@ export default function GestureTrainingPage() {
       {/* Header */}
       <div className="gesture-training__header">
         <div>
-          <h1 className="gesture-training__title">Gesture Recording & Active Learning</h1>
+          <h1 className="gesture-training__title">Gesture Studio & ML Training</h1>
           <p className="gesture-training__subtitle">
-            Capture 3D motion time-series, curate labeled training datasets, and refine ambiguous samples
+            Capture 3D motion samples, train machine learning classifiers, and manage active learning queues
           </p>
         </div>
         <div className="gesture-training__header-actions">
-          <button
-            className="btn btn--secondary"
-            onClick={() => setShowNewDatasetModal(true)}
-          >
+          <button className="btn btn--secondary" onClick={() => setShowNewDatasetModal(true)}>
             📁 New Dataset
+          </button>
+          <button
+            className="btn btn--primary"
+            disabled={isTraining}
+            onClick={handleTrainModel}
+            title="Train a new ML model version on current gesture samples"
+          >
+            {isTraining ? "⏳ Training Model..." : "🧠 Train Model Now"}
           </button>
         </div>
       </div>
@@ -179,159 +247,351 @@ export default function GestureTrainingPage() {
       {error && (
         <div className="error-banner" role="alert">
           <span>⚠️ {error}</span>
-          <button className="btn btn--small" onClick={() => setError(null)}>
-            Dismiss
-          </button>
+          <button className="btn btn--small" onClick={() => setError(null)}>✕</button>
         </div>
       )}
       {successMsg && (
-        <div className="success-banner" role="alert">
+        <div className="success-banner" role="status">
           <span>✅ {successMsg}</span>
-          <button className="btn btn--small" onClick={() => setSuccessMsg(null)}>
-            Dismiss
-          </button>
+          <button className="btn btn--small" onClick={() => setSuccessMsg(null)}>✕</button>
         </div>
       )}
 
-      {/* Main Grid */}
+      {/* Grid Layout */}
       <div className="gesture-training__grid">
-        {/* Left Column: Recording Studio Viewport */}
-        <div className="gesture-training__col">
+        {/* Left Column: Recording Studio & ML Training Studio */}
+        <div className="gesture-training__main-column">
+          {/* Studio Recording Card */}
           <div className="card studio-card">
             <div className="card__header">
-              <h2 className="card__title">Live Gesture Recording Studio</h2>
-              <span className={`status-pill ${isRecordingActive ? "status-pill--active" : ""}`}>
+              <div>
+                <h2 className="card__title">Motion Recording Studio</h2>
+                <span className="card__subtitle">Capture high-frequency 3D head pose and landmark sequences</span>
+              </div>
+              <span className={`status-pill status-pill--${recordingStatus.status}`}>
                 {recordingStatus.status.toUpperCase()}
               </span>
             </div>
 
-            {/* Viewport with Animated Overlay */}
-            <div className="studio-viewport">
-              <img
-                src={visionService.getStreamUrl(true)}
-                alt="Live Camera Capture Feed"
-                className="studio-feed"
-              />
-
-              {/* Countdown Overlay */}
-              {recordingStatus.status === "countdown" && (
-                <div className="countdown-overlay">
-                  <div className="countdown-ring">
+            {/* Countdown / Recording HUD Overlay */}
+            {isRecordingActive && (
+              <div className="recording-hud">
+                {recordingStatus.status === "countdown" ? (
+                  <div className="recording-hud__countdown">
                     <span className="countdown-number">
                       {Math.ceil(recordingStatus.countdown_remaining)}
                     </span>
+                    <span className="countdown-label">Get Ready to Perform Gesture...</span>
                   </div>
-                  <span className="countdown-label">GET READY: PERFORM {selectedClass.toUpperCase()}</span>
-                </div>
-              )}
-
-              {/* Recording Overlay */}
-              {recordingStatus.status === "recording" && (
-                <div className="recording-active-overlay">
-                  <div className="rec-dot" />
-                  <span className="rec-text">RECORDING MOTION...</span>
-                  <div className="rec-progress-bar">
-                    <div
-                      className="rec-progress-fill"
-                      style={{
-                        width: `${(recordingStatus.frames_captured / recordingStatus.total_frames) * 100}%`,
-                      }}
-                    />
+                ) : (
+                  <div className="recording-hud__recording">
+                    <div className="rec-indicator">
+                      <div className="rec-dot rec-dot--pulsing" />
+                      <span>RECORDING MOTION: {recordingStatus.gesture_name?.toUpperCase()}</span>
+                    </div>
+                    <div className="progress-bar-container">
+                      <div
+                        className="progress-bar-fill"
+                        style={{
+                          width: `${(recordingStatus.frames_captured / recordingStatus.total_frames) * 100}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="frame-counter">
+                      {recordingStatus.frames_captured} / {recordingStatus.total_frames} Frames
+                    </span>
                   </div>
-                  <span className="rec-count">
-                    {recordingStatus.frames_captured} / {recordingStatus.total_frames} Frames
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Recording Controls */}
-            <div className="studio-controls">
-              <div className="class-selector">
-                <span className="control-label">Target Gesture Class:</span>
-                <div className="class-chips">
-                  {classes.map((cls) => (
-                    <button
-                      key={cls.id}
-                      className={`class-chip ${selectedClass === cls.name ? "class-chip--active" : ""}`}
-                      onClick={() => setSelectedClass(cls.name)}
-                      disabled={isRecordingActive}
-                    >
-                      {cls.name.toUpperCase()} ({cls.sample_count})
-                    </button>
-                  ))}
-                </div>
+                )}
               </div>
+            )}
 
-              <div className="recording-parameters">
-                <div className="param-item">
-                  <span className="control-label">Sequence Frames: {sequenceLength}</span>
-                  <input
-                    type="range"
-                    min="15"
-                    max="60"
-                    step="5"
-                    value={sequenceLength}
+            {/* Controls */}
+            <div className="studio-controls">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Target Gesture Class</label>
+                  <select
                     disabled={isRecordingActive}
-                    onChange={(e) => setSequenceLength(parseInt(e.target.value, 10))}
-                    aria-label="Sequence frames slider"
-                  />
+                    value={selectedClass}
+                    onChange={(e) => setSelectedClass(e.target.value)}
+                  >
+                    {classes.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.name} ({c.sample_count} samples)
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="param-item">
-                  <span className="control-label">Pre-roll Countdown: {countdownSeconds}s</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="5"
-                    step="1"
-                    value={countdownSeconds}
+
+                <div className="form-group">
+                  <label>Sequence Length</label>
+                  <select
                     disabled={isRecordingActive}
-                    onChange={(e) => setCountdownSeconds(parseInt(e.target.value, 10))}
-                    aria-label="Countdown seconds slider"
-                  />
+                    value={sequenceLength}
+                    onChange={(e) => setSequenceLength(Number(e.target.value))}
+                  >
+                    <option value={20}>20 Frames (~0.7s)</option>
+                    <option value={30}>30 Frames (~1.0s - Recommended)</option>
+                    <option value={45}>45 Frames (~1.5s)</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Pre-Roll Countdown</label>
+                  <select
+                    disabled={isRecordingActive}
+                    value={countdownSeconds}
+                    onChange={(e) => setCountdownSeconds(Number(e.target.value))}
+                  >
+                    <option value={1}>1 Second</option>
+                    <option value={3}>3 Seconds (Default)</option>
+                    <option value={5}>5 Seconds</option>
+                  </select>
                 </div>
               </div>
 
               <div className="studio-actions">
                 {isRecordingActive ? (
-                  <button className="btn btn--danger btn--full" onClick={handleCancelRecording}>
-                    ✕ CANCEL RECORDING
+                  <button className="btn btn--danger" onClick={handleCancelRecording}>
+                    ✕ Cancel Recording
                   </button>
                 ) : (
-                  <button className="btn btn--primary btn--full btn--pulse" onClick={handleStartRecording}>
-                    ⏺ START RECORDING ({selectedClass.toUpperCase()})
+                  <button className="btn btn--primary" onClick={handleStartRecording}>
+                    ⏺️ Start Motion Recording
                   </button>
                 )}
               </div>
             </div>
           </div>
+
+          {/* ML Model Training Studio Card */}
+          <div className="card training-studio-card">
+            <div className="card__header">
+              <div>
+                <h2 className="card__title">🧠 ML Model Training Studio</h2>
+                <span className="card__subtitle">Train multi-class gesture models, inspect confusion matrices, and manage deployments</span>
+              </div>
+              <span className="badge badge--success">{models.length} Models Trained</span>
+            </div>
+
+            {/* Model Configuration & Train Action */}
+            <div className="training-controls-row">
+              <div className="form-group">
+                <label>Model Architecture</label>
+                <select
+                  disabled={isTraining}
+                  value={modelType}
+                  onChange={(e) => setModelType(e.target.value)}
+                >
+                  <option value="sklearn_rf">Random Forest (Fast & Robust)</option>
+                  <option value="sklearn_gb">Gradient Boosting (High Precision)</option>
+                  <option value="sklearn_mlp">Multi-Layer Perceptron (Neural Net)</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Estimators / Iterations</label>
+                <select
+                  disabled={isTraining}
+                  value={trainingEstimators}
+                  onChange={(e) => setTrainingEstimators(Number(e.target.value))}
+                >
+                  <option value={50}>50 Trees (Ultra-fast)</option>
+                  <option value={100}>100 Trees (Balanced)</option>
+                  <option value={200}>200 Trees (Deep)</option>
+                </select>
+              </div>
+
+              <div className="form-group training-submit-group">
+                <button
+                  className="btn btn--primary"
+                  disabled={isTraining}
+                  onClick={handleTrainModel}
+                >
+                  {isTraining ? "⏳ Training..." : "🚀 Train New Model"}
+                </button>
+              </div>
+            </div>
+
+            {/* Model Versions List Table */}
+            <div className="model-versions-wrapper">
+              <h3 className="section-subtitle">Trained Model Versions</h3>
+              {models.length === 0 ? (
+                <div className="empty-state">
+                  <span>No models trained yet. Click "Train New Model" to train your first gesture classifier.</span>
+                </div>
+              ) : (
+                <div className="models-table-container">
+                  <table className="models-table">
+                    <thead>
+                      <tr>
+                        <th>Version</th>
+                        <th>Architecture</th>
+                        <th>Status</th>
+                        <th>Test Acc</th>
+                        <th>Macro F1</th>
+                        <th>Training Time</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {models.map((m) => (
+                        <tr
+                          key={m.id}
+                          className={selectedModel?.id === m.id ? "model-row--selected" : ""}
+                          onClick={() => setSelectedModel(m)}
+                        >
+                          <td>
+                            <strong>{m.version}</strong>
+                            <span className="model-name-sub">{m.name}</span>
+                          </td>
+                          <td>
+                            <code>{m.model_type}</code>
+                          </td>
+                          <td>
+                            <span className={`status-badge status-badge--${m.status}`}>
+                              {m.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="metric-highlight">
+                              {m.metrics?.test_accuracy ? `${(m.metrics.test_accuracy * 100).toFixed(1)}%` : "N/A"}
+                            </span>
+                          </td>
+                          <td>{m.metrics?.macro_f1 ? m.metrics.macro_f1.toFixed(3) : "N/A"}</td>
+                          <td>{m.metrics?.training_time_seconds ? `${m.metrics.training_time_seconds}s` : "N/A"}</td>
+                          <td>
+                            <div className="table-actions">
+                              {m.status !== "active" && (
+                                <button
+                                  className="btn btn--small btn--primary"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleActivateModel(m.id);
+                                  }}
+                                  title="Deploy this model for live inference"
+                                >
+                                  Deploy Active
+                                </button>
+                              )}
+                              <button
+                                className="btn btn--icon btn--danger-subtle"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteModel(m.id);
+                                }}
+                                title="Delete Model"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Detailed Confusion Matrix & Metrics Display for Selected Model */}
+            {selectedModel && selectedModel.metrics && (
+              <div className="model-metrics-panel">
+                <div className="metrics-panel-header">
+                  <div>
+                    <h3 className="section-subtitle">Evaluation Metrics: {selectedModel.version}</h3>
+                    <span className="metrics-sub">
+                      Trained on {selectedModel.metrics.sample_count} samples across {selectedModel.metrics.class_labels.length} classes
+                    </span>
+                  </div>
+                  <div className="metric-pills-row">
+                    <div className="metric-pill">
+                      <span className="metric-pill__label">Train Acc</span>
+                      <span className="metric-pill__value">{((selectedModel.metrics.train_accuracy || 0) * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="metric-pill">
+                      <span className="metric-pill__label">Val Acc</span>
+                      <span className="metric-pill__value">{((selectedModel.metrics.val_accuracy || 0) * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="metric-pill">
+                      <span className="metric-pill__label">Test Acc</span>
+                      <span className="metric-pill__value metric-pill__value--good">
+                        {((selectedModel.metrics.test_accuracy || 0) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="metric-pill">
+                      <span className="metric-pill__label">Macro F1</span>
+                      <span className="metric-pill__value">{(selectedModel.metrics.macro_f1 || 0).toFixed(3)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Confusion Matrix Heatmap Table */}
+                {selectedModel.metrics.confusion_matrix && (
+                  <div className="confusion-matrix-wrapper">
+                    <h4 className="matrix-title">Confusion Matrix (Predicted vs Actual)</h4>
+                    <div className="matrix-scroll">
+                      <table className="confusion-matrix-table">
+                        <thead>
+                          <tr>
+                            <th className="matrix-corner">Actual \ Pred</th>
+                            {selectedModel.metrics.class_labels.map((lbl) => (
+                              <th key={lbl} className="matrix-col-header">{lbl}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedModel.metrics.confusion_matrix.map((row, rIdx) => (
+                            <tr key={selectedModel.metrics!.class_labels[rIdx]}>
+                              <th className="matrix-row-header">{selectedModel.metrics!.class_labels[rIdx]}</th>
+                              {row.map((cell, cIdx) => (
+                                <td
+                                  key={cIdx}
+                                  className={`matrix-cell ${rIdx === cIdx ? "matrix-cell--diag" : cell > 0 ? "matrix-cell--error" : ""}`}
+                                >
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Right Column: Dataset Metrics, Recorded Samples & Active Learning Queue */}
-        <div className="gesture-training__col">
-          {/* Active Learning Review Queue */}
+        {/* Right Column: Active Learning & Dataset Samples */}
+        <div className="gesture-training__side-column">
+          {/* Active Learning Queue */}
           <div className="card active-learning-card">
             <div className="card__header">
-              <h2 className="card__title">Active Learning Review Queue</h2>
+              <div>
+                <h2 className="card__title">Active Learning Queue</h2>
+                <span className="card__subtitle">Ambiguous / low-confidence live samples needing human label review</span>
+              </div>
               <span className="badge badge--warning">{activeQueue.length} Pending</span>
             </div>
 
             {activeQueue.length === 0 ? (
               <div className="empty-state">
-                <span>✨ No unconfirmed samples in the active learning queue.</span>
+                <span>All inference detections confident. No items in review queue.</span>
               </div>
             ) : (
-              <div className="al-queue-list">
+              <div className="al-items-list">
                 {activeQueue.map((item) => (
                   <div key={item.id} className="al-item">
                     <div className="al-item__info">
-                      <span className="al-item__pred">
-                        Predicted: <strong>{item.predicted_gesture}</strong>
-                      </span>
-                      <span className="al-item__conf">
-                        Conf: {(item.confidence * 100).toFixed(0)}% · Entropy: {item.entropy}
-                      </span>
+                      <div className="al-item__gesture">
+                        <strong>{item.predicted_gesture}</strong>
+                        <span className="al-confidence">{(item.confidence * 100).toFixed(1)}% Conf</span>
+                      </div>
+                      <span className="al-entropy">Entropy: {item.entropy.toFixed(2)}</span>
                     </div>
+
                     <div className="al-item__actions">
                       <button
                         className="btn btn--small btn--success"

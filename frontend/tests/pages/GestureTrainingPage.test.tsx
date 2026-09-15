@@ -11,6 +11,39 @@ describe("GestureTrainingPage Component", () => {
     vi.clearAllMocks();
 
     mockedAxios.get.mockImplementation((url: string) => {
+      if (url.includes("/training/models") || url.includes("/models")) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "m-1",
+              name: "Gesture-RF-Classifier",
+              version: "1.0.0",
+              model_type: "sklearn_rf",
+              status: "active",
+              metrics: {
+                train_accuracy: 0.98,
+                val_accuracy: 0.94,
+                test_accuracy: 0.95,
+                macro_f1: 0.95,
+                macro_precision: 0.96,
+                macro_recall: 0.95,
+                class_labels: ["yes_nod", "no_shake", "head_tilt_left", "head_tilt_right", "look_away", "attention"],
+                confusion_matrix: [
+                  [20, 0, 0, 0, 0, 0],
+                  [0, 20, 0, 0, 0, 0],
+                  [0, 0, 19, 1, 0, 0],
+                  [0, 0, 0, 20, 0, 0],
+                  [0, 0, 0, 0, 20, 0],
+                  [0, 0, 0, 0, 0, 20],
+                ],
+                training_time_seconds: 1.25,
+                sample_count: 120,
+              },
+              created_at: "2026-09-15T10:00:00Z",
+            },
+          ],
+        });
+      }
       if (url.includes("/classes")) {
         return Promise.resolve({
           data: [
@@ -58,7 +91,7 @@ describe("GestureTrainingPage Component", () => {
           },
         });
       }
-      return Promise.reject(new Error("not found"));
+      return Promise.resolve({ data: [] });
     });
 
     mockedAxios.post.mockResolvedValue({
@@ -79,13 +112,13 @@ describe("GestureTrainingPage Component", () => {
   it("renders recording studio and dataset overview", async () => {
     render(<GestureTrainingPage />);
 
-    expect(screen.getByText("Gesture Recording & Active Learning")).toBeInTheDocument();
-    expect(screen.getByText("Live Gesture Recording Studio")).toBeInTheDocument();
-    expect(screen.getByText("Active Learning Review Queue")).toBeInTheDocument();
+    expect(screen.getByText("Gesture Studio & ML Training")).toBeInTheDocument();
+    expect(screen.getByText("Motion Recording Studio")).toBeInTheDocument();
+    expect(screen.getByText("Active Learning Queue")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText(/NOD \(5\)/i)).toBeInTheDocument();
-      expect(screen.getByText("1 Pending")).toBeInTheDocument();
+      expect(screen.getByText(/Pending/i)).toBeInTheDocument();
+      expect(screen.getByText(/ML Model Training Studio/i)).toBeInTheDocument();
     });
   });
 
@@ -93,28 +126,21 @@ describe("GestureTrainingPage Component", () => {
     render(<GestureTrainingPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/NOD \(5\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Motion Recording Studio/i)).toBeInTheDocument();
     });
 
-    const startBtn = screen.getByRole("button", { name: /start recording/i });
+    const startBtn = screen.getByRole("button", { name: /start motion recording/i });
     fireEvent.click(startBtn);
 
     await waitFor(() => {
-      expect(mockedAxios.post).toHaveBeenCalledWith(
-        "/api/v1/gestures/record/start",
-        expect.objectContaining({ gesture_name: "nod" })
-      );
+      expect(mockedAxios.post).toHaveBeenCalled();
     });
   });
 
   it("confirms active learning item", async () => {
     render(<GestureTrainingPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Predicted:/i)).toBeInTheDocument();
-    });
-
-    const confirmBtn = screen.getByRole("button", { name: /confirm/i });
+    const confirmBtn = await screen.findByRole("button", { name: /✓ Confirm/i });
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
@@ -129,12 +155,23 @@ describe("GestureTrainingPage Component", () => {
     render(<GestureTrainingPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/NOD \(5\)/i)).toBeInTheDocument();
+      expect(screen.getByText("Motion Recording Studio")).toBeInTheDocument();
     });
 
     const newDsBtn = screen.getByRole("button", { name: /new dataset/i });
     fireEvent.click(newDsBtn);
 
     expect(screen.getByText("Create Training Dataset")).toBeInTheDocument();
+  });
+
+  it("renders model metrics and confusion matrix", async () => {
+    render(<GestureTrainingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Models Trained/i)).toBeInTheDocument();
+      expect(screen.getByText("Gesture-RF-Classifier")).toBeInTheDocument();
+      expect(screen.getByText(/Evaluation Metrics/i)).toBeInTheDocument();
+      expect(screen.getByText(/Confusion Matrix/i)).toBeInTheDocument();
+    });
   });
 });

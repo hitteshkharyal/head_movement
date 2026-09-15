@@ -34,6 +34,21 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
                     latency = 0.0
                     if hasattr(controller, "ping"):
                         latency = await controller.ping()
+
+                    pred_info = {}
+                    try:
+                        from app.services.ml.gesture_predictor import get_gesture_predictor
+                        p_st = get_gesture_predictor().get_status()
+                        pred_info = {
+                            "detected_gesture": p_st["last_detected_gesture"],
+                            "confidence": p_st["last_confidence"],
+                            "is_cooldown_active": p_st["is_cooldown_active"],
+                            "cooldown_remaining_sec": p_st["cooldown_remaining_sec"],
+                            "autonomous_reaction": p_st["autonomous_reaction_enabled"],
+                        }
+                    except Exception:
+                        pass
+
                     msg = {
                         "type": "heartbeat",
                         "connected": status.connected,
@@ -43,6 +58,7 @@ async def websocket_telemetry_endpoint(websocket: WebSocket):
                         "is_moving": status.servo.is_moving,
                         "is_emergency_stopped": is_estop,
                         "latency_ms": max(0.0, latency),
+                        "prediction": pred_info,
                     }
                 await websocket.send_text(json.dumps(msg))
         except WebSocketDisconnect:

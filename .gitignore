@@ -101,11 +101,13 @@ backend/data/recordings/samples/*.npy
 backend/data/recordings/samples/*.json
 backend/data/recordings/sessions/*.npy
 backend/data/recordings/sessions/*.json
+backend/data/recordings/models/
 backend/data/models/*/*.pkl
 backend/data/models/*/*.onnx
 backend/data/models/*/*.pt
 backend/data/models/*/*.h5
 *.pkl
+*.joblib
 *.h5
 *.pt
 *.pth
