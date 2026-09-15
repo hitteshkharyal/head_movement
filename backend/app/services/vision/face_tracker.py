@@ -42,6 +42,7 @@ class FaceTracker:
         self.max_faces = max_faces
         self._mp_face_mesh = None
         self._face_mesh = None
+        self._mediapipe_ready = False
         self._init_mediapipe()
 
     def _init_mediapipe(self):
@@ -52,23 +53,29 @@ class FaceTracker:
                 self._face_mesh = self._mp_face_mesh.FaceMesh(
                     max_num_faces=self.max_faces,
                     refine_landmarks=True,
-                    min_detection_confidence=0.5,
-                    min_tracking_confidence=0.5,
+                    min_detection_confidence=0.6,   # Raised from 0.5 — fewer false positives
+                    min_tracking_confidence=0.6,
                 )
-                logger.info("MediaPipe FaceMesh pipeline initialized")
+                self._mediapipe_ready = True
+                logger.info("MediaPipe FaceMesh pipeline initialized (strict mode: confidence >= 0.6)")
         except Exception as exc:
             logger.warning("MediaPipe initialization failed: %s. Using OpenCV fallback.", exc)
 
     def process_frame(self, frame: np.ndarray) -> FacePose:
         """
         Process a single BGR frame and extract 3D head pose orientation.
+
+        When MediaPipe is available (real camera), ONLY use MediaPipe detections.
+        The color-blob fallback is intentionally skipped for real cameras because
+        it produces false positives on bags, walls, and other non-face objects.
+        The fallback is kept only for synthetic test frames where MediaPipe is absent.
         """
         h, w, _ = frame.shape
         if h == 0 or w == 0:
             return FacePose(face_detected=False)
 
-        # Attempt MediaPipe extraction first
-        if self._face_mesh is not None:
+        # --- MediaPipe path (real camera, precise neural detection) ---
+        if self._mediapipe_ready and self._face_mesh is not None:
             try:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = self._face_mesh.process(rgb_frame)
@@ -77,8 +84,11 @@ class FaceTracker:
                     return self._estimate_pose_from_mesh(mesh, w, h)
             except Exception as exc:
                 logger.debug("MediaPipe processing error: %s", exc)
+            # MediaPipe is available but found no face — do NOT fall through to color blobs.
+            # Return clean no-detection so nothing spurious triggers downstream.
+            return FacePose(face_detected=False)
 
-        # Geometric fallback extraction (color thresholding / synthetic analysis)
+        # --- Color-blob fallback (synthetic frames only, no MediaPipe available) ---
         return self._fallback_pose_estimation(frame, w, h)
 
     def _estimate_pose_from_mesh(self, mesh, w: int, h: int) -> FacePose:

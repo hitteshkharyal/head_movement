@@ -15,6 +15,9 @@ class CameraManager:
     """
     Manages video frame acquisition with support for physical webcams,
     video files, and high-fidelity synthetic test patterns.
+
+    Reference-counted: camera hardware is released automatically when the
+    last active consumer (stream viewer or tracking loop) disconnects.
     """
 
     _instance: Optional["CameraManager"] = None
@@ -39,14 +42,17 @@ class CameraManager:
         self._frame_count = 0
         self._start_time = time.time()
         self._lock = asyncio.Lock()
+        # Reference counter: how many active consumers (streams / tracking loops)
+        self._consumer_count: int = 0
 
     @classmethod
     def get_instance(cls) -> "CameraManager":
         if cls._instance is None:
-            # Default to synthetic if running in mock hardware mode or explicitly set
-            use_synth = settings.esp32_connection_type.lower() == "mock" or settings.camera_index < 0
+            # Only use synthetic fallback if camera_index is explicitly -1.
+            # ESP32 mock mode should NOT force a synthetic camera — real webcam is independent.
+            use_synth = settings.camera_index < 0
             cls._instance = cls(
-                camera_index=settings.camera_index,
+                camera_index=max(0, settings.camera_index),
                 width=settings.camera_width,
                 height=settings.camera_height,
                 fps=settings.camera_fps,
@@ -55,9 +61,11 @@ class CameraManager:
         return cls._instance
 
     async def start(self) -> bool:
-        """Initialize and start camera acquisition."""
+        """Initialize and start camera acquisition. Increments consumer ref count."""
         async with self._lock:
+            self._consumer_count += 1
             if self._running:
+                logger.debug("Camera already running (consumers=%d)", self._consumer_count)
                 return True
 
             if not self.use_synthetic:
@@ -67,12 +75,18 @@ class CameraManager:
                         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
                         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                         self._cap.set(cv2.CAP_PROP_FPS, self.fps)
-                        logger.info("Physical camera %d initialized (%dx%d)", self.camera_index, self.width, self.height)
+                        logger.info(
+                            "Physical camera %d opened (%dx%d @ %d FPS)",
+                            self.camera_index, self.width, self.height, self.fps,
+                        )
                     else:
-                        logger.warning("Camera %d unavailable. Falling back to synthetic stream.", self.camera_index)
+                        logger.warning(
+                            "Camera %d unavailable — falling back to synthetic stream.",
+                            self.camera_index,
+                        )
                         self.use_synthetic = True
                 except Exception as exc:
-                    logger.warning("Failed to open physical camera (%s). Using synthetic stream.", exc)
+                    logger.warning("Failed to open camera (%s) — using synthetic stream.", exc)
                     self.use_synthetic = True
 
             self._running = True
@@ -80,13 +94,31 @@ class CameraManager:
             return True
 
     async def stop(self) -> None:
-        """Release camera resources."""
+        """Decrement consumer ref count. Releases hardware when count reaches zero."""
         async with self._lock:
+            self._consumer_count = max(0, self._consumer_count - 1)
+            if self._consumer_count > 0:
+                logger.debug(
+                    "Camera stop deferred — %d consumer(s) still active",
+                    self._consumer_count,
+                )
+                return
+            # No consumers left — release hardware
             self._running = False
             if self._cap:
                 self._cap.release()
                 self._cap = None
-            logger.info("Camera manager stopped")
+            logger.info("Camera released (no active consumers)")
+
+    async def force_stop(self) -> None:
+        """Immediately release camera regardless of consumer count. For emergency use."""
+        async with self._lock:
+            self._consumer_count = 0
+            self._running = False
+            if self._cap:
+                self._cap.release()
+                self._cap = None
+            logger.info("Camera force-stopped")
 
     def read_frame(self) -> Tuple[bool, np.ndarray]:
         """Read latest frame (physical or synthetic)."""
@@ -103,9 +135,8 @@ class CameraManager:
                 self._frame_count += 1
                 return True, frame
 
-        # Synthetic fallback
+        # Synthetic fallback — animated Lissajous head
         t = time.time() - self._start_time
-        # Animate head moving smoothly in an organic Lissajous figure
         sim_yaw = math.sin(t * 0.8) * 28.0
         sim_pitch = math.cos(t * 0.6) * 18.0
         frame = self._generate_synthetic_frame(sim_yaw, sim_pitch)
@@ -126,7 +157,6 @@ class CameraManager:
         for y in range(0, self.height, 40):
             cv2.line(frame, (0, y), (self.width, y), grid_color, 1)
 
-        # Center coordinates
         cx = self.width // 2 + int(yaw_deg * 2.5)
         cy = self.height // 2 - int(pitch_deg * 2.0)
 
@@ -135,7 +165,7 @@ class CameraManager:
         cv2.ellipse(frame, (cx, cy), (75, 100), 0, 0, 360, face_color, -1)
         cv2.ellipse(frame, (cx, cy), (75, 100), 0, 0, 360, (100, 150, 240), 2)
 
-        # Eyes (shift with yaw)
+        # Eyes
         eye_offset_x = int(yaw_deg * 0.5)
         eye_offset_y = int(pitch_deg * 0.3)
         left_eye = (cx - 30 + eye_offset_x, cy - 20 + eye_offset_y)
@@ -154,7 +184,7 @@ class CameraManager:
         mouth_x = cx + int(yaw_deg * 0.6)
         cv2.ellipse(frame, (mouth_x, mouth_y), (25, 10), 0, 0, 180, (50, 50, 180), 2)
 
-        # HUD Overlay Banner
+        # HUD Banner
         cv2.putText(
             frame,
             "SYNTHETIC VISION SOURCE // SIMULATED TARGET",
@@ -165,7 +195,6 @@ class CameraManager:
             1,
             cv2.LINE_AA,
         )
-
         return frame
 
     def encode_jpeg(self, frame: np.ndarray, quality: int = 80) -> bytes:
@@ -179,6 +208,10 @@ class CameraManager:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def consumer_count(self) -> int:
+        return self._consumer_count
 
 
 def get_camera_manager() -> CameraManager:

@@ -56,18 +56,18 @@ class TrackingController:
         return cls._instance
 
     async def start_tracking(self, mode: str = "mirror") -> bool:
-        """Start closed-loop servo tracking."""
+        """Start closed-loop servo tracking. Acquires a camera consumer slot."""
         async with self._lock:
             self.mode = mode
             self._running = True
-            await self._camera.start()
+            await self._camera.start()  # increments ref count
             if self._task is None or self._task.done():
                 self._task = asyncio.create_task(self._tracking_loop())
             logger.info("Visual tracking started in mode '%s'", mode)
             return True
 
     async def stop_tracking(self) -> bool:
-        """Stop closed-loop tracking and idle servos."""
+        """Stop closed-loop tracking. Releases the camera consumer slot."""
         async with self._lock:
             self.mode = "off"
             self._running = False
@@ -78,6 +78,7 @@ class TrackingController:
                 except asyncio.CancelledError:
                     pass
                 self._task = None
+            await self._camera.stop()  # decrements ref count; releases hardware if no stream open
             logger.info("Visual tracking stopped")
             return True
 

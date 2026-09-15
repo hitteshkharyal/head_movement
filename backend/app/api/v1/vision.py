@@ -92,9 +92,14 @@ async def video_stream(
     tracker_ctrl: TrackingController = Depends(get_tracking_controller),
 ):
     """
-    Live MJPEG multipart video stream for frontend camera viewport.
+    Live MJPEG multipart video stream for the frontend camera viewport.
+
+    Camera is started when the stream begins and automatically stopped when
+    the browser tab closes or navigates away (via reference counting).
     """
+    # Start camera — increments consumer ref count
     await camera.start()
+    logger.info("Stream consumer connected (camera consumers=%d)", camera.consumer_count)
 
     async def frame_generator():
         try:
@@ -106,7 +111,7 @@ async def video_stream(
 
                 if overlay:
                     pose = tracker_ctrl.last_pose
-                    # If not currently running background tracking loop, run pose on-demand for stream
+                    # If tracking loop is NOT running, run pose detection on demand for the preview
                     if not tracker_ctrl.is_tracking:
                         pose = face_tracker_singleton.process_frame(frame)
                     frame = face_tracker_singleton.draw_annotations(frame, pose)
@@ -116,9 +121,21 @@ async def video_stream(
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n\r\n" + jpeg_bytes + b"\r\n"
                 )
-                await asyncio.sleep(0.033)  # ~30 FPS
+                await asyncio.sleep(0.033)  # ~30 FPS cap
+
         except asyncio.CancelledError:
-            pass
+            # Browser navigated away / closed tab — clean up
+            logger.info("Stream consumer disconnected")
+        except GeneratorExit:
+            logger.info("Stream generator closed by client")
+        finally:
+            # Always decrement consumer count; stops camera when last consumer leaves
+            await camera.stop()
+            logger.info(
+                "Stream released (camera consumers=%d, running=%s)",
+                camera.consumer_count,
+                camera.is_running,
+            )
 
     return StreamingResponse(
         frame_generator(),
