@@ -556,3 +556,319 @@
   font-size: 11px;
   color: var(--color-text-secondary);
 }
+
+/* ── Camera Power Button ─────────────────────────────────────────────── */
+.cam-power-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  letter-spacing: 0.06em;
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  transition: all 0.2s ease;
+  border: 2px solid;
+}
+.cam-power-btn--on {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: #22c55e;
+  color: #22c55e;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.25);
+}
+.cam-power-btn--on:hover {
+  background: rgba(34, 197, 94, 0.25);
+}
+.cam-power-btn--off {
+  background: rgba(100, 116, 139, 0.1);
+  border-color: #475569;
+  color: #94a3b8;
+}
+.cam-power-btn--off:hover {
+  border-color: #64748b;
+  color: #cbd5e1;
+}
+.cam-power-icon { font-size: 0.85rem; }
+
+/* ── Camera Off Placeholder ──────────────────────────────────────────── */
+.video-placeholder--off {
+  background: #070b12;
+  gap: var(--space-4);
+}
+.cam-off-icon {
+  font-size: 3rem;
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+/* Preview status dot */
+.status-dot--preview {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
+/* ── Motor Command Flash Banner ──────────────────────────────────────── */
+.motor-cmd-flash {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: linear-gradient(90deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05));
+  border: 1px solid rgba(239,68,68,0.5);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: #fca5a5;
+  letter-spacing: 0.05em;
+  animation: flashPulse 0.4s ease-out;
+}
+.motor-cmd-icon { font-size: 1.25rem; animation: spin 1s linear infinite; }
+@keyframes flashPulse {
+  0%   { transform: scale(1.02); opacity: 0.6; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+/* ── Live Servo Position Card ────────────────────────────────────────── */
+.servo-pos-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.servo-display {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.servo-axis {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.servo-axis__label {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.servo-axis__angle {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.servo-track {
+  position: relative;
+  height: 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.servo-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #1d4ed8, #38bdf8);
+  border-radius: var(--radius-full);
+  transition: width 0.15s ease-out;
+}
+
+.servo-fill--tilt {
+  background: linear-gradient(90deg, #7c3aed, #a78bfa);
+}
+
+.servo-needle {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  background: #fff;
+  border-radius: 2px;
+  transform: translateX(-50%);
+  box-shadow: 0 0 6px #fff;
+  transition: left 0.15s ease-out;
+}
+
+.servo-center-mark {
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: rgba(255,255,255,0.25);
+  transform: translateX(-50%);
+}
+
+.servo-axis__range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  padding: 0 2px;
+}
+
+.servo-cmd-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.4);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: #fca5a5;
+  letter-spacing: 0.04em;
+  animation: flashPulse 0.3s ease;
+}
+
+/* ── Gesture Training Lab ────────────────────────────────────────────── */
+.gesture-lab-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.gesture-lab__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(59,130,246,0.08));
+  border-bottom: 1px solid rgba(124,58,237,0.2);
+  gap: var(--space-3);
+}
+
+.gesture-lab__title-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.gesture-lab__icon { font-size: 1.5rem; }
+
+.lab-chevron {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  transition: transform 0.25s ease;
+}
+.lab-chevron--open { transform: rotate(180deg); }
+
+.gesture-lab__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+}
+
+.lab-warning {
+  background: rgba(245,158,11,0.1);
+  border: 1px solid rgba(245,158,11,0.35);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-xs);
+  color: #fcd34d;
+  line-height: 1.5;
+}
+
+.lab-recording-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+.lab-recording-bar__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: #fca5a5;
+}
+.lab-progress-track {
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.lab-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ef4444, #f97316);
+  border-radius: var(--radius-full);
+  transition: width 0.1s linear;
+}
+
+.gesture-lab__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+@media (max-width: 900px) {
+  .gesture-lab__grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.lab-gesture-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-bg-secondary);
+  border: 1px solid;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  text-align: center;
+  transition: all 0.2s ease;
+}
+.lab-gesture-tile--recording {
+  background: rgba(239,68,68,0.1);
+  animation: flashPulse 0.5s ease infinite alternate;
+}
+.lab-gesture-tile__icon { font-size: 1.5rem; }
+.lab-gesture-tile__label { font-size: var(--font-size-xs); font-weight: 700; color: var(--color-text-primary); }
+.lab-gesture-tile__hint  { font-size: 10px; color: var(--color-text-tertiary); line-height: 1.3; }
+.lab-gesture-tile__count { font-size: 11px; font-weight: 600; }
+
+.lab-train-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-bg-border);
+}
+.lab-train-info {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+.lab-train-need { color: #f59e0b; }
+
+.lab-train-msg {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+.lab-train-msg--ok  { background: rgba(34,197,94,0.12);  color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+.lab-train-msg--err { background: rgba(239,68,68,0.12);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+
+/* ml-cooldown-badge */
+.ml-cooldown-badge {
+  display: flex;
+  align-items: center;
+}
+

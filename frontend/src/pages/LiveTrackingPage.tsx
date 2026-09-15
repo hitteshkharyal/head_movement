@@ -1,71 +1,150 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { visionService, VisionStatus } from "../services/visionService";
 import { trainingService, InferenceStatus } from "../services/trainingService";
+import { gestureService, RecordStatus } from "../services/gestureService";
+import { servoService } from "../services/servoService";
 import "./LiveTrackingPage.css";
 
+// ─── Gesture class definitions ────────────────────────────────────────────────
+const GESTURE_CLASSES = [
+  { name: "yes_nod",        label: "YES Nod ↕️",      color: "#22c55e", icon: "✅", hint: "Nod head up & down 2x" },
+  { name: "no_shake",       label: "NO Shake ↔️",     color: "#ef4444", icon: "❌", hint: "Shake head left & right 2x" },
+  { name: "head_tilt_left", label: "Tilt Left 🔄",    color: "#a78bfa", icon: "↖️", hint: "Tilt head to left shoulder" },
+  { name: "head_tilt_right",label: "Tilt Right 🔄",   color: "#f59e0b", icon: "↗️", hint: "Tilt head to right shoulder" },
+  { name: "look_away",      label: "Look Away 👀",    color: "#64748b", icon: "😶", hint: "Look away from camera" },
+  { name: "attention",      label: "Attention ✨",    color: "#06b6d4", icon: "👁️", hint: "Look straight at camera" },
+];
+
+const GESTURE_BADGE_MAP: Record<string, { label: string; cls: string; color: string }> = {
+  yes_nod:        { label: "YES — NOD ↕️",     cls: "gesture-badge--yes",       color: "#22c55e" },
+  no_shake:       { label: "NO — SHAKE ↔️",    cls: "gesture-badge--no",        color: "#ef4444" },
+  head_tilt_left: { label: "TILT LEFT 🔄",     cls: "gesture-badge--tilt",      color: "#a78bfa" },
+  head_tilt_right:{ label: "TILT RIGHT 🔄",    cls: "gesture-badge--tilt",      color: "#f59e0b" },
+  look_away:      { label: "LOOK AWAY 👀",     cls: "gesture-badge--away",      color: "#64748b" },
+  attention:      { label: "ATTENTION ✨",     cls: "gesture-badge--attention", color: "#06b6d4" },
+};
+
 export default function LiveTrackingPage() {
+  // ── Vision state ─────────────────────────────────────────────────────────
   const [status, setStatus] = useState<VisionStatus>({
-    camera_running: false,
-    is_tracking: false,
-    tracking_mode: "off",
-    fps: 0,
-    face_detected: false,
-    yaw: 0,
-    pitch: 0,
-    roll: 0,
-    confidence: 0,
-    bbox: [0, 0, 0, 0],
-    sensitivity: 0.5,
-    smoothing_alpha: 0.35,
-    dead_zone: 3.0,
+    camera_running: false, is_tracking: false, tracking_mode: "off",
+    fps: 0, face_detected: false, yaw: 0, pitch: 0, roll: 0,
+    confidence: 0, bbox: [0, 0, 0, 0], sensitivity: 0.5,
+    smoothing_alpha: 0.35, dead_zone: 3.0,
   });
-
-  const [inferenceStatus, setInferenceStatus] = useState<InferenceStatus | null>(null);
-  const [overlayMesh, setOverlayMesh] = useState(true);
-  const [overlayBbox, setOverlayBbox] = useState(true);
-  const [overlayAxis, setOverlayAxis] = useState(true);
+  const [cameraOn, setCameraOn] = useState(false);
   const [selectedMode, setSelectedMode] = useState("mirror");
-  const [error, setError] = useState<string | null>(null);
-  const [streamError, setStreamError] = useState(false);
-  const [togglingReaction, setTogglingReaction] = useState(false);
-  const pollTimerRef = useRef<number | null>(null);
+  const [overlayMesh, setOverlayMesh] = useState(true);
+  const [overlayBbox, setOverlayBbox]   = useState(true);
+  const [overlayAxis, setOverlayAxis]   = useState(true);
+  const [streamError, setStreamError]   = useState(false);
+  const [error, setError]               = useState<string | null>(null);
 
+  // ── Inference / gesture state ─────────────────────────────────────────────
+  const [inferenceStatus, setInferenceStatus] = useState<InferenceStatus | null>(null);
+  const [togglingReaction, setTogglingReaction] = useState(false);
+  const [lastMotorCmd, setLastMotorCmd] = useState<string | null>(null);
+  const lastGestureRef = useRef<string | null>(null);
+
+  // ── Quick gesture lab state ────────────────────────────────────────────────
+  const [labOpen, setLabOpen]                     = useState(false);
+  const [recording, setRecording]                 = useState<RecordStatus | null>(null);
+  const [activeRecordGesture, setActiveRecordGesture] = useState<string | null>(null);
+  const [sampleCounts, setSampleCounts]           = useState<Record<string, number>>({});
+  const [trainingInProgress, setTrainingInProgress] = useState(false);
+  const [trainMsg, setTrainMsg]                   = useState<string | null>(null);
+  const recordPollRef = useRef<number | null>(null);
+  const pollTimerRef  = useRef<number | null>(null);
+
+  // ── Servo position display ────────────────────────────────────────────────
+  const [servoPan,  setServoPan]  = useState(90);
+  const [servoTilt, setServoTilt] = useState(90);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Polling loop: vision status + inference + servo position
+  // ─────────────────────────────────────────────────────────────────────────
   const fetchStatus = useCallback(async () => {
     try {
       const data = await visionService.getStatus();
       setStatus(data);
-      if (data.tracking_mode !== "off") {
-        setSelectedMode(data.tracking_mode);
-      }
+      if (data.tracking_mode !== "off") setSelectedMode(data.tracking_mode);
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Vision backend offline");
     }
-
     try {
       const inf = await trainingService.getInferenceStatus();
       setInferenceStatus(inf);
-    } catch {
-      // Inference status failure is non-blocking
-    }
+
+      // ── Auto motor command when new gesture detected ──────────────────
+      const detected = inf?.last_detected_gesture;
+      if (detected && detected !== lastGestureRef.current && inf.last_confidence >= 0.8) {
+        lastGestureRef.current = detected;
+        if (detected === "yes_nod") {
+          setLastMotorCmd("▲▼ SERVO NOD (YES)");
+          try { await servoService.executeGesture("yes"); } catch {}
+          setTimeout(() => setLastMotorCmd(null), 2500);
+        } else if (detected === "no_shake") {
+          setLastMotorCmd("◄► SERVO SHAKE (NO)");
+          try { await servoService.executeGesture("no"); } catch {}
+          setTimeout(() => setLastMotorCmd(null), 2500);
+        }
+      }
+    } catch {}
+    try {
+      const sv = await servoService.getStatus();
+      setServoPan(sv.pan_angle ?? 90);
+      setServoTilt(sv.tilt_angle ?? 90);
+    } catch {}
   }, []);
 
   useEffect(() => {
     fetchStatus();
     pollTimerRef.current = window.setInterval(fetchStatus, 500);
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    };
+    return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
   }, [fetchStatus]);
 
+  // Refresh sample counts whenever lab opens
+  useEffect(() => {
+    if (!labOpen) return;
+    (async () => {
+      const counts: Record<string, number> = {};
+      for (const g of GESTURE_CLASSES) {
+        try {
+          const samples = await gestureService.getSamples(g.name);
+          counts[g.name] = samples.length;
+        } catch { counts[g.name] = 0; }
+      }
+      setSampleCounts(counts);
+    })();
+  }, [labOpen]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Camera toggle
+  // ─────────────────────────────────────────────────────────────────────────
+  const handleCameraToggle = () => {
+    if (cameraOn) {
+      // Turn off tracking too
+      if (status.is_tracking) {
+        visionService.stopTracking().catch(() => {});
+      }
+      setCameraOn(false);
+      setStreamError(false);
+    } else {
+      setCameraOn(true);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Tracking toggle
+  // ─────────────────────────────────────────────────────────────────────────
   const handleToggleTracking = async () => {
     try {
       if (status.is_tracking) {
-        const updated = await visionService.stopTracking();
-        setStatus(updated);
+        await visionService.stopTracking();
       } else {
-        const updated = await visionService.startTracking(selectedMode);
-        setStatus(updated);
+        if (!cameraOn) setCameraOn(true);
+        await visionService.startTracking(selectedMode);
       }
       setError(null);
     } catch (err: any) {
@@ -76,114 +155,156 @@ export default function LiveTrackingPage() {
   const handleModeChange = async (mode: string) => {
     setSelectedMode(mode);
     if (status.is_tracking) {
-      try {
-        const updated = await visionService.startTracking(mode);
-        setStatus(updated);
-      } catch (err: any) {
-        setError(err.message);
-      }
+      try { await visionService.startTracking(mode); } catch {}
     }
   };
 
   const handleConfigChange = async (key: string, value: number) => {
+    try { await visionService.updateConfig({ [key]: value }); } catch {}
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Quick gesture lab — record + retrain
+  // ─────────────────────────────────────────────────────────────────────────
+  const startRecord = async (gestureName: string) => {
+    if (activeRecordGesture) return;
+    if (!cameraOn) { setCameraOn(true); await new Promise(r => setTimeout(r, 600)); }
     try {
-      const updated = await visionService.updateConfig({ [key]: value });
-      setStatus(updated);
+      setActiveRecordGesture(gestureName);
+      await gestureService.startRecording(gestureName, 30, 3);
+      setRecording({ status: "countdown", countdown_remaining: 3, frames_captured: 0, total_frames: 30, duration_seconds: 1 });
+
+      recordPollRef.current = window.setInterval(async () => {
+        try {
+          const st = await gestureService.getRecordingStatus();
+          setRecording(st);
+          if (st.status === "completed" || st.status === "cancelled" || st.status === "idle") {
+            clearInterval(recordPollRef.current!);
+            setActiveRecordGesture(null);
+            setRecording(null);
+            // Refresh counts
+            const samples = await gestureService.getSamples(gestureName);
+            setSampleCounts(prev => ({ ...prev, [gestureName]: samples.length }));
+          }
+        } catch {
+          clearInterval(recordPollRef.current!);
+          setActiveRecordGesture(null);
+          setRecording(null);
+        }
+      }, 200);
     } catch (err: any) {
-      setError(err.message);
+      setActiveRecordGesture(null);
+      setError("Record failed: " + err?.message);
     }
   };
 
-  // Determine direction labels
-  const getYawLabel = (yaw: number) => {
-    if (Math.abs(yaw) < status.dead_zone) return "CENTER";
-    return yaw > 0 ? "TURNING RIGHT ➡️" : "TURNING LEFT ⬅️";
+  const cancelRecord = async () => {
+    clearInterval(recordPollRef.current!);
+    try { await gestureService.cancelRecording(); } catch {}
+    setActiveRecordGesture(null);
+    setRecording(null);
   };
 
-  const getPitchLabel = (pitch: number) => {
-    if (Math.abs(pitch) < status.dead_zone) return "LEVEL";
-    return pitch > 0 ? "TILTING UP ⬆️" : "TILTING DOWN ⬇️";
+  const handleTrainNow = async () => {
+    setTrainingInProgress(true);
+    setTrainMsg("Training gesture model with real samples…");
+    try {
+      const model = await trainingService.trainModel({ model_name: "Live-Gesture-RF", model_type: "sklearn_rf" });
+      if (model.id) {
+        await trainingService.activateModel(model.id);
+        const acc = model.metrics?.test_accuracy ?? 0;
+        setTrainMsg(`✅ Model trained & activated! Test accuracy: ${(acc * 100).toFixed(1)}%`);
+      }
+    } catch (err: any) {
+      setTrainMsg("❌ Training failed: " + (err?.response?.data?.detail || err.message));
+    } finally {
+      setTrainingInProgress(false);
+      setTimeout(() => setTrainMsg(null), 6000);
+    }
   };
-
-  const streamUrl = visionService.getStreamUrl(overlayMesh || overlayBbox || overlayAxis);
 
   const handleToggleAutonomousReaction = async () => {
     if (!inferenceStatus) return;
     try {
       setTogglingReaction(true);
-      const nextState = !inferenceStatus.autonomous_reaction_enabled;
-      const updated = await trainingService.toggleAutonomousReaction(nextState);
+      const updated = await trainingService.toggleAutonomousReaction(!inferenceStatus.autonomous_reaction_enabled);
       setInferenceStatus(updated);
-    } catch (err: any) {
-      setError(err?.message || "Failed to toggle autonomous reaction");
-    } finally {
-      setTogglingReaction(false);
-    }
+    } catch {} finally { setTogglingReaction(false); }
   };
 
-  const getGestureBadge = (gesture?: string | null) => {
-    switch (gesture) {
-      case "yes_nod":
-        return { label: "YES (NOD) ↕️", class: "gesture-badge--yes" };
-      case "no_shake":
-        return { label: "NO (SHAKE) ↔️", class: "gesture-badge--no" };
-      case "head_tilt_left":
-        return { label: "TILT LEFT 🔄", class: "gesture-badge--tilt" };
-      case "head_tilt_right":
-        return { label: "TILT RIGHT 🔄", class: "gesture-badge--tilt" };
-      case "look_away":
-        return { label: "LOOK AWAY 👀", class: "gesture-badge--away" };
-      case "attention":
-        return { label: "ATTENTION ✨", class: "gesture-badge--attention" };
-      default:
-        return { label: "MONITORING / IDLE", class: "gesture-badge--idle" };
-    }
-  };
-
-  const gestureInfo = getGestureBadge(inferenceStatus?.last_detected_gesture);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────────────────────────────────
+  const getYawLabel  = (v: number) => Math.abs(v) < status.dead_zone ? "CENTER"         : v > 0 ? "RIGHT ➡️"   : "LEFT ⬅️";
+  const getPitchLabel= (v: number) => Math.abs(v) < status.dead_zone ? "LEVEL"          : v > 0 ? "UP ⬆️"     : "DOWN ⬇️";
+  const gestureInfo  = GESTURE_BADGE_MAP[inferenceStatus?.last_detected_gesture ?? ""] ?? { label: "MONITORING…", cls: "gesture-badge--idle", color: "#64748b" };
+  const streamUrl    = visionService.getStreamUrl(overlayMesh || overlayBbox || overlayAxis);
+  const totalSamples = Object.values(sampleCounts).reduce((a, b) => a + b, 0);
+  const canTrain     = totalSamples >= 10;
 
   return (
     <div className="live-tracking" data-testid="live-tracking-page">
-      {/* Header */}
+
+      {/* ── Header ────────────────────────────────────────────────────── */}
       <div className="live-tracking__header">
         <div>
           <h1 className="live-tracking__title">Computer Vision & Live Tracking</h1>
           <p className="live-tracking__subtitle">
-            Real-time MediaPipe face mesh, 3D head pose estimation (solvePnP), and real-time ML gesture prediction
+            Real-time MediaPipe face tracking · Gesture prediction · Motor control
           </p>
         </div>
         <div className="live-tracking__header-actions">
+          {/* Camera Power Button */}
+          <button
+            className={`btn cam-power-btn ${cameraOn ? "cam-power-btn--on" : "cam-power-btn--off"}`}
+            onClick={handleCameraToggle}
+            title={cameraOn ? "Turn camera OFF" : "Turn camera ON"}
+          >
+            <span className="cam-power-icon">{cameraOn ? "🟢" : "⚫"}</span>
+            {cameraOn ? "CAM ON" : "CAM OFF"}
+          </button>
+
           <button
             className={`btn ${status.is_tracking ? "btn--danger btn--pulse" : "btn--primary"}`}
             onClick={handleToggleTracking}
+            disabled={!cameraOn && !status.is_tracking}
           >
             {status.is_tracking ? "🛑 STOP TRACKING" : "▶ START TRACKING"}
           </button>
         </div>
       </div>
 
-      {/* Error alert */}
+      {/* Error banner */}
       {error && (
         <div className="error-banner" role="alert">
           <span>⚠️ {error}</span>
-          <button className="btn btn--small" onClick={() => setError(null)}>
-            Dismiss
-          </button>
+          <button className="btn btn--small" onClick={() => setError(null)}>Dismiss</button>
         </div>
       )}
 
-      {/* Main Grid */}
+      {/* ── Motor Command Flash ──────────────────────────────────────────── */}
+      {lastMotorCmd && (
+        <div className="motor-cmd-flash">
+          <span className="motor-cmd-icon">⚙️</span>
+          <span>{lastMotorCmd}</span>
+        </div>
+      )}
+
+      {/* ── Main 2-column grid ──────────────────────────────────────────── */}
       <div className="live-tracking__grid">
-        {/* Left Column: Video Viewport & Overlays */}
+
+        {/* ── LEFT: Camera + ML Prediction ─────────────────────────────── */}
         <div className="live-tracking__viewport-col">
+
+          {/* Camera viewport */}
           <div className="card viewport-card">
             <div className="viewport-card__header">
               <div className="viewport-status">
-                <span className={`status-dot ${status.is_tracking ? "status-dot--active" : ""}`} />
+                <span className={`status-dot ${status.is_tracking ? "status-dot--active" : cameraOn ? "status-dot--preview" : ""}`} />
                 <span className="viewport-status__text">
                   {status.is_tracking
-                    ? `ACTIVE // MODE: ${status.tracking_mode.toUpperCase()}`
-                    : "STANDBY // PREVIEW ONLY"}
+                    ? `TRACKING // ${status.tracking_mode.toUpperCase()}`
+                    : cameraOn ? "PREVIEW // FACE DETECTION ACTIVE" : "CAMERA OFF"}
                 </span>
               </div>
               <div className="viewport-fps">
@@ -192,74 +313,72 @@ export default function LiveTrackingPage() {
             </div>
 
             <div className="video-container">
-              {!streamError ? (
-                <img
-                  src={streamUrl}
-                  alt="Live Camera Feed with Face Mesh Overlay"
-                  className="video-feed"
-                  onError={() => setStreamError(true)}
-                />
+              {cameraOn ? (
+                !streamError ? (
+                  <img
+                    src={streamUrl}
+                    alt="Live camera feed with face mesh overlay"
+                    className="video-feed"
+                    onError={() => setStreamError(true)}
+                  />
+                ) : (
+                  <div className="video-placeholder">
+                    <div className="video-placeholder__reticle" />
+                    <span>Camera stream error</span>
+                    <button className="btn btn--small" onClick={() => setStreamError(false)}>Retry</button>
+                  </div>
+                )
               ) : (
-                <div className="video-placeholder">
-                  <div className="video-placeholder__reticle" />
-                  <span>CAMERA STREAM CONNECTING...</span>
-                  <button className="btn btn--small" onClick={() => setStreamError(false)}>
-                    Retry Stream
+                <div className="video-placeholder video-placeholder--off">
+                  <div className="cam-off-icon">📷</div>
+                  <span>Camera is OFF</span>
+                  <button className="btn btn--primary btn--small" onClick={handleCameraToggle}>
+                    Turn Camera ON
                   </button>
                 </div>
               )}
 
-              {/* HUD Reticle Overlay */}
-              <div className="hud-overlay">
-                <div className="hud-corner hud-corner--tl" />
-                <div className="hud-corner hud-corner--tr" />
-                <div className="hud-corner hud-corner--bl" />
-                <div className="hud-corner hud-corner--br" />
-                <div className="hud-center-cross" />
-              </div>
+              {/* HUD corners */}
+              {cameraOn && (
+                <div className="hud-overlay">
+                  <div className="hud-corner hud-corner--tl" />
+                  <div className="hud-corner hud-corner--tr" />
+                  <div className="hud-corner hud-corner--bl" />
+                  <div className="hud-corner hud-corner--br" />
+                  <div className="hud-center-cross" />
+                </div>
+              )}
             </div>
 
-            {/* Overlay Toggles */}
-            <div className="overlay-toggles">
-              <span className="overlay-toggles__label">HUD Overlays:</span>
-              <label className="toggle-chip">
-                <input
-                  type="checkbox"
-                  checked={overlayMesh}
-                  onChange={(e) => setOverlayMesh(e.target.checked)}
-                />
-                Face Mesh
-              </label>
-              <label className="toggle-chip">
-                <input
-                  type="checkbox"
-                  checked={overlayBbox}
-                  onChange={(e) => setOverlayBbox(e.target.checked)}
-                />
-                Bounding Box
-              </label>
-              <label className="toggle-chip">
-                <input
-                  type="checkbox"
-                  checked={overlayAxis}
-                  onChange={(e) => setOverlayAxis(e.target.checked)}
-                />
-                3D Pose Vectors
-              </label>
-            </div>
+            {/* Overlay toggles */}
+            {cameraOn && (
+              <div className="overlay-toggles">
+                <span className="overlay-toggles__label">Overlays:</span>
+                {[
+                  { label: "Face Mesh",     val: overlayMesh, set: setOverlayMesh },
+                  { label: "Bounding Box",  val: overlayBbox, set: setOverlayBbox },
+                  { label: "3D Vectors",    val: overlayAxis, set: setOverlayAxis },
+                ].map(o => (
+                  <label key={o.label} className="toggle-chip">
+                    <input type="checkbox" checked={o.val} onChange={e => o.set(e.target.checked)} />
+                    {o.label}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* ML Real-time Gesture Prediction Card */}
+          {/* ML Gesture Prediction card */}
           <div className="card ml-prediction-card" data-testid="gesture-prediction-hud">
             <div className="ml-prediction-card__header">
               <div className="ml-title-group">
                 <span className="ml-title-icon">🧠</span>
                 <div>
-                  <h2 className="card__title">Real-Time Gesture ML Engine</h2>
+                  <h2 className="card__title">Real-Time Gesture Prediction</h2>
                   <span className="ml-subtitle">
                     {inferenceStatus?.active_model_name
-                      ? `Model: ${inferenceStatus.active_model_name} (${inferenceStatus.active_model_version || "v1.0.0"})`
-                      : "No Model Loaded (Train model in Gesture Studio)"}
+                      ? `Model: ${inferenceStatus.active_model_name}`
+                      : "No model loaded — train one in the Gesture Lab below"}
                   </span>
                 </div>
               </div>
@@ -269,51 +388,51 @@ export default function LiveTrackingPage() {
                     ⏳ COOLDOWN ({inferenceStatus.cooldown_remaining_sec.toFixed(1)}s)
                   </span>
                 ) : inferenceStatus?.is_ready ? (
-                  <span className="badge badge--success">⚡ READY (30 FPS)</span>
+                  <span className="badge badge--success">⚡ READY</span>
                 ) : (
                   <span className="badge badge--neutral">
-                    BUFFERING ({inferenceStatus?.buffer_frames || 0}/{inferenceStatus?.buffer_capacity || 30})
+                    BUFFERING ({inferenceStatus?.buffer_frames ?? 0}/{inferenceStatus?.buffer_capacity ?? 30})
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Live Detected Gesture Banner */}
-            <div className="gesture-live-banner">
+            {/* Detected gesture banner */}
+            <div className="gesture-live-banner" style={{ borderColor: gestureInfo.color + "55" }}>
               <div className="gesture-live-banner__main">
-                <span className="gesture-live-banner__label">DETECTED GESTURE:</span>
-                <span className={`gesture-live-banner__value ${gestureInfo.class}`}>
+                <span className="gesture-live-banner__label">DETECTED:</span>
+                <span className={`gesture-live-banner__value ${gestureInfo.cls}`}
+                      style={{ color: gestureInfo.color }}>
                   {gestureInfo.label}
                 </span>
               </div>
               <div className="gesture-live-banner__confidence">
                 <span>Confidence:</span>
                 <span className="gesture-conf-num">
-                  {Math.round((inferenceStatus?.last_confidence || 0) * 100)}%
+                  {Math.round((inferenceStatus?.last_confidence ?? 0) * 100)}%
                 </span>
               </div>
             </div>
-
-            {/* Confidence Bar */}
             <div className="confidence-meter-bar">
               <div
                 className="confidence-meter-fill"
-                style={{ width: `${Math.round((inferenceStatus?.last_confidence || 0) * 100)}%` }}
+                style={{
+                  width: `${Math.round((inferenceStatus?.last_confidence ?? 0) * 100)}%`,
+                  background: gestureInfo.color,
+                }}
               />
             </div>
 
-            {/* Autonomous Robot Reaction Controls */}
+            {/* Autonomous Robot Reaction toggle */}
             <div className="autonomous-reaction-box">
               <div className="autonomous-reaction-info">
-                <span className="autonomous-reaction-title">🤖 Autonomous Robot Reaction</span>
+                <span className="autonomous-reaction-title">🤖 Motor Auto-Reaction</span>
                 <span className="autonomous-reaction-desc">
-                  Robot automatically nods or shakes servos when human gesture confidence exceeds 80%
+                  Robot physically nods/shakes when gesture confidence ≥ 80%
                 </span>
               </div>
               <button
-                className={`btn btn--small ${
-                  inferenceStatus?.autonomous_reaction_enabled ? "btn--primary" : "btn--secondary"
-                }`}
+                className={`btn btn--small ${inferenceStatus?.autonomous_reaction_enabled ? "btn--primary" : "btn--secondary"}`}
                 onClick={handleToggleAutonomousReaction}
                 disabled={togglingReaction}
               >
@@ -321,77 +440,180 @@ export default function LiveTrackingPage() {
               </button>
             </div>
           </div>
-        </div>
 
-        {/* Right Column: 3D Pose Angles & Closed-Loop Controls */}
-        <div className="live-tracking__controls-col">
-          {/* 3D Pose HUD Gauge */}
-          <div className="card pose-hud-card">
-            <h2 className="card__title">3D Head Pose Estimation</h2>
-
-            <div className="pose-meters">
-              {/* Yaw Meter */}
-              <div className="pose-meter">
-                <div className="pose-meter__header">
-                  <span className="pose-meter__name">YAW (Horizontal)</span>
-                  <span className="pose-meter__value">{status.yaw.toFixed(1)}°</span>
-                </div>
-                <div className="pose-meter__bar-bg">
-                  <div
-                    className="pose-meter__bar-fill"
-                    style={{
-                      width: `${Math.min(100, Math.abs(status.yaw) * 2)}%`,
-                      left: status.yaw >= 0 ? "50%" : `${50 - Math.min(50, Math.abs(status.yaw))}%`,
-                    }}
-                  />
-                  <div className="pose-meter__center-mark" />
-                </div>
-                <span className="pose-meter__sub">{getYawLabel(status.yaw)}</span>
-              </div>
-
-              {/* Pitch Meter */}
-              <div className="pose-meter">
-                <div className="pose-meter__header">
-                  <span className="pose-meter__name">PITCH (Vertical)</span>
-                  <span className="pose-meter__value">{status.pitch.toFixed(1)}°</span>
-                </div>
-                <div className="pose-meter__bar-bg">
-                  <div
-                    className="pose-meter__bar-fill pose-meter__bar-fill--pitch"
-                    style={{
-                      width: `${Math.min(100, Math.abs(status.pitch) * 2.5)}%`,
-                      left: status.pitch >= 0 ? "50%" : `${50 - Math.min(50, Math.abs(status.pitch) * 1.25)}%`,
-                    }}
-                  />
-                  <div className="pose-meter__center-mark" />
-                </div>
-                <span className="pose-meter__sub">{getPitchLabel(status.pitch)}</span>
-              </div>
-
-              {/* Roll Meter */}
-              <div className="pose-meter">
-                <div className="pose-meter__header">
-                  <span className="pose-meter__name">ROLL (Tilt)</span>
-                  <span className="pose-meter__value">{status.roll.toFixed(1)}°</span>
-                </div>
-                <div className="pose-meter__bar-bg">
-                  <div
-                    className="pose-meter__bar-fill pose-meter__bar-fill--roll"
-                    style={{
-                      width: `${Math.min(100, Math.abs(status.roll) * 3)}%`,
-                      left: status.roll >= 0 ? "50%" : `${50 - Math.min(50, Math.abs(status.roll) * 1.5)}%`,
-                    }}
-                  />
-                  <div className="pose-meter__center-mark" />
+          {/* ── Gesture Quick Lab ────────────────────────────────────── */}
+          <div className="card gesture-lab-card">
+            <div className="gesture-lab__header" onClick={() => setLabOpen(v => !v)} style={{ cursor: "pointer" }}>
+              <div className="gesture-lab__title-group">
+                <span className="gesture-lab__icon">🎓</span>
+                <div>
+                  <h2 className="card__title">Gesture Training Lab</h2>
+                  <span className="ml-subtitle">
+                    Record real samples from live camera → retrain model
+                  </span>
                 </div>
               </div>
+              <span className={`lab-chevron ${labOpen ? "lab-chevron--open" : ""}`}>▼</span>
             </div>
 
-            {/* Target Detection Metric */}
+            {labOpen && (
+              <div className="gesture-lab__body">
+                {/* Data quality warning if no real samples */}
+                {totalSamples < 10 && (
+                  <div className="lab-warning">
+                    ⚠️ <strong>Low Training Data:</strong> The current model uses synthetic data only.
+                    Record at least <strong>5 real samples per gesture</strong> for accurate results.
+                  </div>
+                )}
+
+                {/* Recording progress */}
+                {recording && activeRecordGesture && (
+                  <div className="lab-recording-bar">
+                    <div className="lab-recording-bar__top">
+                      <span>
+                        {recording.status === "countdown"
+                          ? `⏳ Get ready: ${recording.countdown_remaining.toFixed(1)}s`
+                          : `🔴 Recording ${activeRecordGesture}: ${recording.frames_captured}/${recording.total_frames} frames`}
+                      </span>
+                      <button className="btn btn--danger btn--small" onClick={cancelRecord}>✕ Cancel</button>
+                    </div>
+                    <div className="lab-progress-track">
+                      <div
+                        className="lab-progress-fill"
+                        style={{ width: `${(recording.frames_captured / recording.total_frames) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Gesture grid */}
+                <div className="gesture-lab__grid">
+                  {GESTURE_CLASSES.map(g => {
+                    const count = sampleCounts[g.name] ?? 0;
+                    const isActive = activeRecordGesture === g.name;
+                    const isGood   = count >= 5;
+                    return (
+                      <div
+                        key={g.name}
+                        className={`lab-gesture-tile ${isActive ? "lab-gesture-tile--recording" : ""}`}
+                        style={{ borderColor: g.color + "44" }}
+                      >
+                        <div className="lab-gesture-tile__icon" style={{ color: g.color }}>{g.icon}</div>
+                        <div className="lab-gesture-tile__label">{g.label}</div>
+                        <div className="lab-gesture-tile__hint">{g.hint}</div>
+                        <div className="lab-gesture-tile__count" style={{ color: isGood ? "#22c55e" : "#f59e0b" }}>
+                          {count} sample{count !== 1 ? "s" : ""} {isGood ? "✅" : "(need 5+)"}
+                        </div>
+                        <button
+                          className={`btn btn--small ${isActive ? "btn--danger" : "btn--secondary"}`}
+                          style={!isActive ? { borderColor: g.color, color: g.color } : {}}
+                          onClick={() => isActive ? cancelRecord() : startRecord(g.name)}
+                          disabled={!!activeRecordGesture && !isActive}
+                        >
+                          {isActive ? "⏳ Recording…" : "⏺ Record"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Train button */}
+                <div className="lab-train-row">
+                  <div className="lab-train-info">
+                    <span>Total real samples: <strong>{totalSamples}</strong></span>
+                    {!canTrain && <span className="lab-train-need"> (need at least 10 to train)</span>}
+                  </div>
+                  <button
+                    className="btn btn--primary"
+                    onClick={handleTrainNow}
+                    disabled={trainingInProgress || !canTrain}
+                  >
+                    {trainingInProgress ? "⏳ Training…" : "🚀 Train & Activate Model"}
+                  </button>
+                </div>
+                {trainMsg && (
+                  <div className={`lab-train-msg ${trainMsg.startsWith("✅") ? "lab-train-msg--ok" : "lab-train-msg--err"}`}>
+                    {trainMsg}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── RIGHT: Pose + Servo + Tracking Controls ───────────────────── */}
+        <div className="live-tracking__controls-col">
+
+          {/* Live Servo Position card */}
+          <div className="card servo-pos-card">
+            <h2 className="card__title">⚙️ Live Servo Position</h2>
+            <div className="servo-display">
+              <div className="servo-axis">
+                <div className="servo-axis__label">
+                  <span>PAN (Horizontal)</span>
+                  <span className="servo-axis__angle">{servoPan.toFixed(1)}°</span>
+                </div>
+                <div className="servo-track">
+                  <div className="servo-fill" style={{ width: `${(servoPan / 180) * 100}%` }} />
+                  <div className="servo-needle" style={{ left: `${(servoPan / 180) * 100}%` }} />
+                  <div className="servo-center-mark" />
+                </div>
+                <div className="servo-axis__range"><span>0°</span><span>CENTER</span><span>180°</span></div>
+              </div>
+              <div className="servo-axis">
+                <div className="servo-axis__label">
+                  <span>TILT (Vertical)</span>
+                  <span className="servo-axis__angle">{servoTilt.toFixed(1)}°</span>
+                </div>
+                <div className="servo-track">
+                  <div className="servo-fill servo-fill--tilt" style={{ width: `${((servoTilt - 30) / 120) * 100}%` }} />
+                  <div className="servo-needle" style={{ left: `${((servoTilt - 30) / 120) * 100}%` }} />
+                  <div className="servo-center-mark" />
+                </div>
+                <div className="servo-axis__range"><span>30°</span><span>CENTER</span><span>150°</span></div>
+              </div>
+            </div>
+            {lastMotorCmd && (
+              <div className="servo-cmd-badge">
+                <span>🔴 LIVE</span> {lastMotorCmd}
+              </div>
+            )}
+          </div>
+
+          {/* 3D Pose Estimation card */}
+          <div className="card pose-hud-card">
+            <h2 className="card__title">3D Head Pose Estimation</h2>
+            <div className="pose-meters">
+              {[
+                { label: "YAW (Horizontal)",  val: status.yaw,   max: 50,  cls: "",         sub: getYawLabel(status.yaw) },
+                { label: "PITCH (Vertical)",  val: status.pitch, max: 40,  cls: "--pitch",  sub: getPitchLabel(status.pitch) },
+                { label: "ROLL (Tilt)",       val: status.roll,  max: 45,  cls: "--roll",   sub: "" },
+              ].map(m => (
+                <div key={m.label} className="pose-meter">
+                  <div className="pose-meter__header">
+                    <span className="pose-meter__name">{m.label}</span>
+                    <span className="pose-meter__value">{m.val.toFixed(1)}°</span>
+                  </div>
+                  <div className="pose-meter__bar-bg">
+                    <div
+                      className={`pose-meter__bar-fill${m.cls}`}
+                      style={{
+                        width: `${Math.min(100, Math.abs(m.val) / m.max * 100)}%`,
+                        left: m.val >= 0 ? "50%" : `${50 - Math.min(50, Math.abs(m.val) / m.max * 50)}%`,
+                      }}
+                    />
+                    <div className="pose-meter__center-mark" />
+                  </div>
+                  {m.sub && <span className="pose-meter__sub">{m.sub}</span>}
+                </div>
+              ))}
+            </div>
+
+            {/* Face detection indicator */}
             <div className="detection-banner">
               <div className="detection-status">
                 <span className={`detection-indicator ${status.face_detected ? "detection-indicator--active" : ""}`}>
-                  {status.face_detected ? "TARGET ACQUIRED" : "NO TARGET DETECTED"}
+                  {status.face_detected ? "🎯 FACE DETECTED" : "🔍 SEARCHING…"}
                 </span>
               </div>
               <span className="confidence-text">
@@ -400,78 +622,44 @@ export default function LiveTrackingPage() {
             </div>
           </div>
 
-          {/* Tracking Modes & Sensitivity Controls */}
+          {/* Tracking Mode & Tuning */}
           <div className="card tuning-card">
-            <h2 className="card__title">Tracking Modes & Tuning</h2>
-
+            <h2 className="card__title">Tracking Mode & Tuning</h2>
             <div className="mode-selector">
-              <button
-                className={`mode-btn ${selectedMode === "mirror" ? "mode-btn--active" : ""}`}
-                onClick={() => handleModeChange("mirror")}
-              >
-                <span className="mode-btn__icon">🪞</span>
-                <span className="mode-btn__title">Mirror Pose</span>
-                <span className="mode-btn__desc">Directly copy human head angles</span>
-              </button>
-              <button
-                className={`mode-btn ${selectedMode === "follow" ? "mode-btn--active" : ""}`}
-                onClick={() => handleModeChange("follow")}
-              >
-                <span className="mode-btn__icon">🎯</span>
-                <span className="mode-btn__title">Center Face</span>
-                <span className="mode-btn__desc">Inverted track to keep face centered</span>
-              </button>
+              {[
+                { id: "mirror", icon: "🪞", title: "Mirror Pose",  desc: "Head angles copied 1:1 to robot" },
+                { id: "follow", icon: "🎯", title: "Center Face",  desc: "Robot tracks to center you in frame" },
+              ].map(m => (
+                <button
+                  key={m.id}
+                  className={`mode-btn ${selectedMode === m.id ? "mode-btn--active" : ""}`}
+                  onClick={() => handleModeChange(m.id)}
+                >
+                  <span className="mode-btn__icon">{m.icon}</span>
+                  <span className="mode-btn__title">{m.title}</span>
+                  <span className="mode-btn__desc">{m.desc}</span>
+                </button>
+              ))}
             </div>
 
-            {/* Tuning Sliders */}
             <div className="tuning-sliders">
-              <div className="tuning-slider">
-                <div className="tuning-slider__header">
-                  <span>Tracking Sensitivity</span>
-                  <span>{status.sensitivity.toFixed(2)}x</span>
+              {[
+                { key: "sensitivity",     label: "Tracking Sensitivity", min: 0.1, max: 1.5, step: 0.05, val: status.sensitivity,    fmt: (v: number) => `${v.toFixed(2)}x` },
+                { key: "smoothing_alpha", label: "EMA Smoothing (Alpha)", min: 0.05,max: 0.9,  step: 0.05, val: status.smoothing_alpha,fmt: (v: number) => v.toFixed(2) },
+                { key: "dead_zone",       label: "Dead-Zone Filter",      min: 0,   max: 10,   step: 0.5,  val: status.dead_zone,     fmt: (v: number) => `${v.toFixed(1)}°` },
+              ].map(sl => (
+                <div key={sl.key} className="tuning-slider">
+                  <div className="tuning-slider__header">
+                    <span>{sl.label}</span>
+                    <span>{sl.fmt(sl.val)}</span>
+                  </div>
+                  <input
+                    type="range" min={sl.min} max={sl.max} step={sl.step} value={sl.val}
+                    onChange={e => handleConfigChange(sl.key, parseFloat(e.target.value))}
+                    aria-label={`${sl.label} slider`}
+                  />
                 </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1.5"
-                  step="0.05"
-                  value={status.sensitivity}
-                  onChange={(e) => handleConfigChange("sensitivity", parseFloat(e.target.value))}
-                  aria-label="Tracking sensitivity slider"
-                />
-              </div>
-
-              <div className="tuning-slider">
-                <div className="tuning-slider__header">
-                  <span>EMA Motion Smoothing (Alpha)</span>
-                  <span>{status.smoothing_alpha.toFixed(2)}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.05"
-                  max="0.9"
-                  step="0.05"
-                  value={status.smoothing_alpha}
-                  onChange={(e) => handleConfigChange("smoothing_alpha", parseFloat(e.target.value))}
-                  aria-label="Motion smoothing alpha slider"
-                />
-              </div>
-
-              <div className="tuning-slider">
-                <div className="tuning-slider__header">
-                  <span>Dead-Zone Filter</span>
-                  <span>{status.dead_zone.toFixed(1)}°</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="10.0"
-                  step="0.5"
-                  value={status.dead_zone}
-                  onChange={(e) => handleConfigChange("dead_zone", parseFloat(e.target.value))}
-                  aria-label="Dead zone filter slider"
-                />
-              </div>
+              ))}
             </div>
           </div>
         </div>
